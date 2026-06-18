@@ -47,7 +47,7 @@ def generate():
                         inner_zip,
                         mimetype='application/zip',
                         as_attachment=True,
-                        download_name=os.path.basename(inner_zip)
+                        download_name='mod.zip'
                     ))
                     response.headers['X-Seed-Link'] = seed_link
                     response.headers['X-Generation-Message'] = 'Generation completed successfully.'
