@@ -696,4 +696,3 @@ class KH1World(World):
                             i = i + 2
             self.mp_costs = mp_costs
         return self.mp_costs
-# trigger-test-marker
