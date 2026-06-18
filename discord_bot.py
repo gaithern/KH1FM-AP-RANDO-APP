@@ -1,3 +1,5 @@
+import discord_bot_settings as dbs
+
 import discord
 from discord.ext import commands
 import os
@@ -5,23 +7,23 @@ import requests
 import json
 from bs4 import BeautifulSoup
 
-TOKEN = os.environ['DISCORD_BOT_TOKEN']
+TOKEN = dbs.DISCORD_BOT_TOKEN
 
-FLASK_REGISTER_URL = os.environ.get('FLASK_WRITE_URL', 'http://ngaither.pythonanywhere.com/register')
-FLASK_AP_GENERATE_URL = os.environ.get('FLASK_AP_UPLOAD_URL', 'http://ngaither.pythonanywhere.com/generate')
-FLASK_AP_DAILY_SEED_URL = os.environ.get('FLASK_AP_DAILY_SEED_URL', 'http://ngaither.pythonanywhere.com/daily_seed')
-FLASK_AP_DAILY_SEED_COMPLETE_URL = os.environ.get('FLASK_AP_DAILY_SEED_COMPLETE_URL', 'http://ngaither.pythonanywhere.com/daily_seed_complete')
-FLASK_AP_DAILY_LEADERBOARD_URL = os.environ.get('FLASK_AP_DAILY_SEED_COMPLETE_URL', 'http://ngaither.pythonanywhere.com/daily_leaderboard')
-FLASK_AP_DAILY_DUO_TEAM_UP_URL = os.environ.get('FLASK_AP_DAILY_DUO_TEAM_UP_URL', 'http://ngaither.pythonanywhere.com/daily_duo_team_up')
-FLASK_AP_DAILY_DUO_SEED_URL = os.environ.get('FLASK_AP_DAILY_DUO_SEED_URL', 'http://ngaither.pythonanywhere.com/daily_duo_seed')
-FLASK_AP_DAILY_DUO_SEED_COMPLETE_URL = os.environ.get('FLASK_AP_DAILY_DUO_SEED_COMPLETE_URL', 'http://ngaither.pythonanywhere.com/daily_duo_seed_complete')
-FLASK_AP_DAILY_DUO_LEADERBOARD_URL = os.environ.get('FLASK_AP_DAILY_DUO_LEADERBOARD_URL', 'http://ngaither.pythonanywhere.com/daily_duo_leaderboard')
+FLASK_REGISTER_URL = os.environ.get('FLASK_WRITE_URL', f'{dbs.URL_BASE}/register')
+FLASK_AP_GENERATE_URL = os.environ.get('FLASK_AP_UPLOAD_URL', f'{dbs.URL_BASE}/generate')
+FLASK_AP_DAILY_SEED_URL = os.environ.get('FLASK_AP_DAILY_SEED_URL', f'{dbs.URL_BASE}/daily_seed')
+FLASK_AP_DAILY_SEED_COMPLETE_URL = os.environ.get('FLASK_AP_DAILY_SEED_COMPLETE_URL', f'{dbs.URL_BASE}/daily_seed_complete')
+FLASK_AP_DAILY_LEADERBOARD_URL = os.environ.get('FLASK_AP_DAILY_LEADERBOARD_URL', f'{dbs.URL_BASE}/daily_leaderboard')
+FLASK_AP_DAILY_DUO_TEAM_UP_URL = os.environ.get('FLASK_AP_DAILY_DUO_TEAM_UP_URL', f'{dbs.URL_BASE}/daily_duo_team_up')
+FLASK_AP_DAILY_DUO_SEED_URL = os.environ.get('FLASK_AP_DAILY_DUO_SEED_URL', f'{dbs.URL_BASE}/daily_duo_seed')
+FLASK_AP_DAILY_DUO_SEED_COMPLETE_URL = os.environ.get('FLASK_AP_DAILY_DUO_SEED_COMPLETE_URL', f'{dbs.URL_BASE}/daily_duo_seed_complete')
+FLASK_AP_DAILY_DUO_LEADERBOARD_URL = os.environ.get('FLASK_AP_DAILY_DUO_LEADERBOARD_URL', f'{dbs.URL_BASE}/daily_duo_leaderboard')
 
 intents = discord.Intents.default()
 intents.message_content = True  # Enable if you need to read message content
 
 # Initialize the bot with a command prefix
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix=dbs.COMMAND_PREFIX, intents=intents)
 
 @bot.command()
 async def register(ctx):

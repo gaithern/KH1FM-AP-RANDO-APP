@@ -168,7 +168,7 @@ def get_seed_link(file_path):
 def remove_output(file_path):
     os.remove(file_path)
 
-def get_patch_file(file_path):
+def get_inner_zip_name(file_path):
     ap_zip_file = file_path
     nested_zip = get_nested_zip(ap_zip_file)
     if nested_zip:
@@ -181,9 +181,9 @@ def generate_daily_seed(date):
     generation_zip_filename = remove_path_from_filepath(generation_zip_filepath)
     move_file(generation_zip_filepath, AP_DAILY_SEED_OUTPUT_DIR)
     generation_zip = f"{AP_DAILY_SEED_OUTPUT_DIR}/{generation_zip_filename}"
-    patch_file = get_patch_file(generation_zip)
+    inner_zip_name = get_inner_zip_name(generation_zip)
     seed_link = get_seed_link(generation_zip)
-    return seed_link, patch_file
+    return seed_link, inner_zip_name
 
 def generate_daily_duo_seed(date):
     generation_zip_filepath = generate(AP_DAILY_DUO_SEED_YAML_DIR)

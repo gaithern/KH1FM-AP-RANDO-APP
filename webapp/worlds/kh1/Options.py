@@ -562,7 +562,7 @@ class DestinyIslands(Toggle):
     
     When "Destiny Islands" is found, Traverse Town will have an additional place to land - Seashore.
     
-    "Raft Materials" allow progress into Day 2 and to Homecoming (Final Bosses).  The amount is defined in Day 2 Materials and Homecoming Materials.
+    "Raft Materials" allow progress into Day 2 and to Homecoming.  The amount is defined in Day 2 Materials and Homecoming Materials.
     """
     display_name = "Destiny Islands"
 
@@ -746,7 +746,7 @@ class Day2Materials(Range):
 
 class HomecomingMaterials(Range):
     """
-    The amount of Raft Materials required to access Homecoming (Final Bosses).
+    The amount of Raft Materials required to access Homecoming.
     """
     display_name = "Homecoming Materials"
     default = 10
@@ -755,7 +755,7 @@ class HomecomingMaterials(Range):
 
 class MaterialsInPool(Range):
     """
-    The amount of Raft Materials required to access Homecoming (Final Bosses).
+    The amount of Raft Materials that will be added to the item pool.
     """
     display_name = "Materials in Pool"
     default = 16
@@ -846,13 +846,6 @@ class AccessoryAugments(Toggle):
     These can be either positive or negative.
     """
     display_name = "Accessory Augments"
-class AugmentAbilitiesFromPool(Toggle):
-    """
-    If accessory augments is on, if an accessory's augment is assigned an ability, that ability can only be found on that accessory.
-    
-    This is forced to false if Remote Items is OFF.
-    """
-    display_name = "Augment Abilities from Pool"
 
 @dataclass
 class KH1Options(PerGameCommonOptions):
@@ -941,7 +934,6 @@ class KH1Options(PerGameCommonOptions):
     individual_spell_level_costs: IndividualSpellLevelCosts
     scaling_spell_potency: ScalingSpellPotency
     accessory_augments: AccessoryAugments
-    augment_abilities_from_pool: AugmentAbilitiesFromPool
     
 
 kh1_option_groups = [
@@ -1014,10 +1006,6 @@ kh1_option_groups = [
         IndividualSpellLevelCosts,
         ScalingSpellPotency
     ]),
-    OptionGroup("Accessories", [
-        AccessoryAugments,
-        AugmentAbilitiesFromPool
-    ]),
     OptionGroup("Misc", [
         StartingWorlds,
         StartingTools,
@@ -1035,6 +1023,7 @@ kh1_option_groups = [
         GoofyDeathLink,
         RemoteItems,
         ShortenGoMode,
+        AccessoryAugments,
         OneHP,
         FourByThree,
         AutoAttack,
