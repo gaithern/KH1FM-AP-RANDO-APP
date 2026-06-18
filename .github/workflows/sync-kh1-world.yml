@@ -1,7 +1,8 @@
 name: Sync engine from ArchipelagoKH1FM
 
 on:
-  # schedule disabled during dry-run testing
+  schedule:
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -43,5 +44,5 @@ jobs:
           else
             UPSTREAM_SHA=$(git -C upstream-kh1fm rev-parse --short HEAD)
             git commit -m "Sync engine from ArchipelagoKH1FM@${UPSTREAM_SHA}"
-            git push origin HEAD:sync-test-dry-run --force
+            git push origin HEAD:dev
           fi
