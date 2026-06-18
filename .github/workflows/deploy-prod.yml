@@ -1,0 +1,45 @@
+name: Deploy prod site
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.PA_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ssh.pythonanywhere.com >> ~/.ssh/known_hosts
+
+      - name: Sync webapp/ to PythonAnywhere
+        run: |
+          rsync -az --delete \
+            --exclude '__pycache__/' --exclude '*.pyc' \
+            --exclude 'logs/' --exclude 'output/' --exclude 'Players/' \
+            --exclude '_persistent_storage.yaml' --exclude 'host.yaml' \
+            -e "ssh -i ~/.ssh/id_ed25519" \
+            webapp/ "${{ secrets.PA_USERNAME }}@ssh.pythonanywhere.com:/home/${{ secrets.PA_USERNAME }}/mysite/"
+
+      - name: Sync prod Discord bot
+        run: |
+          rsync -az \
+            -e "ssh -i ~/.ssh/id_ed25519" \
+            discord_bot.py discord_bot_settings.py \
+            "${{ secrets.PA_USERNAME }}@ssh.pythonanywhere.com:/home/${{ secrets.PA_USERNAME }}/"
+
+      - name: Reload prod web app
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Token ${{ secrets.PA_API_TOKEN }}" \
+            "https://www.pythonanywhere.com/api/v0/user/${{ secrets.PA_USERNAME }}/webapps/${{ secrets.PA_USERNAME }}.pythonanywhere.com/reload/"
+
+      - name: Restart prod Discord bot task
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Token ${{ secrets.PA_API_TOKEN }}" \
+            "https://www.pythonanywhere.com/api/v0/user/${{ secrets.PA_USERNAME }}/always_on_tasks/${{ secrets.PA_BOT_TASK_ID }}/restart/"
