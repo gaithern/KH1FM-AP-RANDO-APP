@@ -101,8 +101,8 @@ async def daily_seed(ctx):
 
             # Check if the response indicates a file download
             if 'application/zip' in response.headers.get('Content-Type', '') or 'application/octet-stream' in response.headers.get('Content-Type', ''):
-                await ctx.send(f"Daily seed fetch complete\nRoom link is: {room_link}\nPlease find your patch file attached...")
-                temp_file_path = "patch.kh1rpatch" # Create a temporary filename
+                await ctx.send(f"Daily seed fetch complete\nRoom link is: {room_link}\nPlease find your mod attached...")
+                temp_file_path = "mod.zip" # Create a temporary filename
                 try:
                     with open(temp_file_path, 'wb') as f:
                         for chunk in response.iter_content(chunk_size=8192):
