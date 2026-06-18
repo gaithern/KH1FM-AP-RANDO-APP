@@ -61,9 +61,6 @@ kh1_option_presets: Dict[str, Dict[str, Any]] = {
         "max_ap_cost": 5,
         "min_ap_cost": 0,
         
-        "accessory_augments": False,
-        "augment_abilities_from_pool": True,
-        
         "randomize_puppies": True,
         "puppy_value": 3,
         "starting_worlds": 4,
@@ -80,6 +77,7 @@ kh1_option_presets: Dict[str, Dict[str, Any]] = {
         "goofy_death_link": False,
         "remote_items": RemoteItems.option_off,
         "shorten_go_mode": True,
+        "accessory_augments": False,
         "one_hp": False,
         "four_by_three": False,
         "beep_hack": False,
@@ -150,9 +148,6 @@ kh1_option_presets: Dict[str, Dict[str, Any]] = {
         "max_ap_cost": 5,
         "min_ap_cost": 0,
         
-        "accessory_augments": False,
-        "augment_abilities_from_pool": True,
-        
         "randomize_puppies": True,
         "puppy_value": 1,
         "starting_worlds": 0,
@@ -169,6 +164,7 @@ kh1_option_presets: Dict[str, Dict[str, Any]] = {
         "goofy_death_link": False,
         "remote_items": RemoteItems.option_off,
         "shorten_go_mode": True,
+        "accessory_augments": False,
         "one_hp": False,
         "four_by_three": False,
         "beep_hack": False,
@@ -239,9 +235,6 @@ kh1_option_presets: Dict[str, Dict[str, Any]] = {
         "max_ap_cost": 5,
         "min_ap_cost": 0,
         
-        "accessory_augments": False,
-        "augment_abilities_from_pool": True,
-        
         "randomize_puppies": True,
         "puppy_value": 3,
         "starting_worlds": 0,
@@ -258,6 +251,7 @@ kh1_option_presets: Dict[str, Dict[str, Any]] = {
         "goofy_death_link": False,
         "remote_items": RemoteItems.option_off,
         "shorten_go_mode": True,
+        "accessory_augments": False,
         "one_hp": False,
         "four_by_three": False,
         "beep_hack": False,
@@ -327,9 +321,6 @@ kh1_option_presets: Dict[str, Dict[str, Any]] = {
         "max_ap_cost": 5,
         "min_ap_cost": 0,
         
-        "accessory_augments": False,
-        "augment_abilities_from_pool": True,
-        
         "randomize_puppies": True,
         "puppy_value": 3,
         "starting_worlds": 0,
@@ -346,6 +337,7 @@ kh1_option_presets: Dict[str, Dict[str, Any]] = {
         "goofy_death_link": False,
         "remote_items": RemoteItems.option_off,
         "shorten_go_mode": True,
+        "accessory_augments": False,
         "one_hp": False,
         "four_by_three": False,
         "beep_hack": False,

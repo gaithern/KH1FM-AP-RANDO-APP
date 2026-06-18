@@ -41,13 +41,13 @@ def generate():
                 file_path = ap_tools.generate(player_path)
                 unzipped_folder_path = file_path[:-4]
                 seed_link = ap_tools.get_seed_link(file_path)
-                patch_file = ap_tools.get_patch_file(file_path)
-                if os.path.exists(patch_file):
+                inner_zip = ap_tools.get_inner_zip_name(file_path)
+                if os.path.exists(inner_zip):
                     response = make_response(send_file(
-                        patch_file,
+                        inner_zip,
                         mimetype='application/zip',
                         as_attachment=True,
-                        download_name=os.path.basename(patch_file)
+                        download_name=os.path.basename(inner_zip)
                     ))
                     response.headers['X-Seed-Link'] = seed_link
                     response.headers['X-Generation-Message'] = 'Generation completed successfully.'
