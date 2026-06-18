@@ -80,7 +80,7 @@ def daily_seed():
                 seed_zip_path,
                 mimetype='application/zip',
                 as_attachment=True,
-                download_name=os.path.basename(seed_zip_path)
+                download_name='mod.zip'
             ))
             response.headers['X-Room-Link'] = room_link
             return response, 200
