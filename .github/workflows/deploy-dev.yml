@@ -2,7 +2,7 @@ name: Deploy dev site
 
 on:
   push:
-    branches: [dev]
+    branches: [main]
     paths:
       - 'webapp/**'
 
