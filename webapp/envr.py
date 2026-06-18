@@ -1,6 +1,6 @@
 import os
 
-# All environment-specific values are set in the WSGI file, not here.
+# Environment-specific values are set via os.environ in the WSGI file, not here.
 DB_HOST = 'ngaither.mysql.pythonanywhere-services.com'
 DB_USER = 'ngaither'
 DB_PASSWORD = os.environ['DB_PASSWORD']
