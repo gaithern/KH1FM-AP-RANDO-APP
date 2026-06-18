@@ -28,6 +28,11 @@ jobs:
             -e "ssh -i ~/.ssh/id_ed25519" \
             webapp/ "${{ secrets.PA_USERNAME }}@ssh.pythonanywhere.com:/home/${{ secrets.PA_USERNAME }}/mysite_dev/"
 
+      - name: Install/update Python dependencies
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "${{ secrets.PA_USERNAME }}@ssh.pythonanywhere.com" \
+            "grep -viE '^kivy' /home/${{ secrets.PA_USERNAME }}/mysite_dev/requirements.txt > /tmp/dev-requirements.txt && /home/${{ secrets.PA_USERNAME }}/.virtualenvs/kh1appvenv_dev/bin/pip install -U -r /tmp/dev-requirements.txt"
+
       - name: Reload dev web app
         run: |
           curl -sf -X POST \

@@ -1,0 +1,48 @@
+name: Sync engine from ArchipelagoKH1FM
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout dev branch
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - name: Checkout ArchipelagoKH1FM
+        uses: actions/checkout@v4
+        with:
+          repository: gaithernOrg/ArchipelagoKH1FM
+          ref: main
+          path: upstream-kh1fm
+
+      - name: Mirror into webapp/, preserving our deploy-glue files
+        run: |
+          rsync -a --delete \
+            --exclude '.git/' --exclude '.github/' \
+            --exclude '/ap_tools.py' --exclude '/envr.py' --exclude '/flask_app.py' \
+            --exclude '/html_tools.py' --exclude '/mysql_tools.py' \
+            --exclude '__pycache__/' --exclude '*.pyc' \
+            upstream-kh1fm/ webapp/
+
+      - name: Commit and push if changed
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add webapp
+          if git diff --cached --quiet; then
+            echo "No changes from ArchipelagoKH1FM"
+          else
+            UPSTREAM_SHA=$(git -C upstream-kh1fm rev-parse --short HEAD)
+            git commit -m "Sync engine from ArchipelagoKH1FM@${UPSTREAM_SHA}"
+            git push origin HEAD:dev
+          fi
