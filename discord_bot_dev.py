@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 import random
 import aiohttp
 
-TOKEN = os.environ.get('DISCORD_BOT_TOKEN', dbs.DISCORD_BOT_TOKEN)
+TOKEN = os.environ.get('DISCORD_BOT_TOKEN_DEV', dbs.DISCORD_BOT_TOKEN)
 
 FLASK_REGISTER_URL = os.environ.get('FLASK_WRITE_URL', f'{dbs.URL_BASE}/register')
 FLASK_AP_GENERATE_URL = os.environ.get('FLASK_AP_UPLOAD_URL', f'{dbs.URL_BASE}/generate')
