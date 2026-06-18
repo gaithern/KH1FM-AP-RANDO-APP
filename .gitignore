@@ -1,2 +1,6 @@
 mydatabase.db
 mysite/archipelago/
+**/__pycache__/
+*.pyc
+*_bkp_*
+mysite_dev/logs/
