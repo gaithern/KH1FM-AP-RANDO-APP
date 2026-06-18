@@ -1,0 +1,212 @@
+import pymysql
+import ap_tools
+import html_tools
+from envr import DB_HOST, DB_USER, DB_PASSWORD, DB_NAME
+
+def get_connection():
+    """Establishes a connection to the MySQL database."""
+    conn = None
+    try:
+        conn = pymysql.connect(host=DB_HOST,
+                             user=DB_USER,
+                             password=DB_PASSWORD,
+                             db=DB_NAME,
+                             cursorclass=pymysql.cursors.DictCursor) # Use DictCursor for easier row access
+    except pymysql.Error as e:
+        print(f"Error connecting to MySQL database: {e}")
+    return conn
+
+def close_connection(conn, rollback = False):
+    try:
+        if rollback:
+            conn.rollback()
+        else:
+            conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Error closing MySQL database connection: {e}")
+
+def execute(conn, sql, args = None, fetch_results = False):
+    results = None
+    with conn.cursor() as cursor:
+        if args:
+            print(f"SQL statement to execute: {sql} with args {args}")
+            cursor.execute(sql, args)
+        else:
+            print(f"SQL statement to execute: {sql}")
+            cursor.execute(sql)
+        if fetch_results:
+            results = cursor.fetchall()
+            print(results)
+        if results is None:
+            results = []
+        cursor.close()
+        return results
+
+
+def register_player(discord_id, discord_name):
+    conn = get_connection()
+    sql = "SELECT player_id FROM players WHERE discord_id = %s"
+    args = (discord_id,)
+    results = execute(conn, sql, args=args, fetch_results=True)
+    if len(results) > 0:
+        close_connection(conn)
+    else:
+        sql = "INSERT INTO players (discord_id, discord_name) VALUES (%s, %s)"
+        args = (discord_id, discord_name.replace(";", ""))
+        execute(conn, sql, args=args)
+        close_connection(conn)
+        
+def get_todays_daily_seed_link():
+    conn = get_connection()
+    sql = """
+        SELECT
+            seed_id,
+            seed_date,
+            seed_link,
+            seed_zip_path
+        FROM daily_seeds
+        WHERE SEED_DATE = DATE_FORMAT(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', 'America/New_York'), '%Y-%m-%d');"""
+    results = execute(conn, sql, fetch_results = True)
+    if len(results) > 0:
+        seed_link = results[0]["seed_link"]
+        seed_zip_path = results[0]["seed_zip_path"]
+    else:
+        sql = "SELECT DATE_FORMAT(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', 'America/New_York'), '%Y-%m-%d') as est_date;"
+        results = execute(conn, sql, fetch_results = True)
+        date = results[0]["est_date"]
+        seed_link, seed_zip_path = ap_tools.generate_daily_seed(date)
+        sql = "INSERT INTO daily_seeds (seed_date, seed_link, seed_zip_path) values (%s, %s, %s);"
+        args = (date, seed_link, seed_zip_path)
+        execute(conn, sql, args = args)
+    close_connection(conn)
+    return seed_link, seed_zip_path
+
+def get_players_daily_seed(discord_id):
+    conn = get_connection()
+    sql = f"""
+        SELECT
+            ps.PLAYER_ID,
+            ps.SEED_ID,
+            ps.room_link,
+            ds.seed_zip_path
+        FROM player_seeds ps
+        JOIN players p
+        ON p.player_id = ps.player_id
+        AND p.discord_id = {discord_id}
+        JOIN daily_seeds ds
+        on ds.seed_id = ps.seed_id
+        AND ds.SEED_DATE = DATE_FORMAT(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', 'America/New_York'), '%Y-%m-%d');"""
+    results = execute(conn, sql, fetch_results = True)
+    if len(results) > 0:
+        room_link = results[0]["room_link"]
+        seed_zip_path = results[0]["seed_zip_path"]
+    else:
+        close_connection(conn)
+        seed_link, seed_zip_path = get_todays_daily_seed_link()
+        conn = get_connection()
+        room_link = ap_tools.get_redirected_url(seed_link.replace("/seed/", "/new_room/"))
+        sql = f"""INSERT INTO player_seeds 
+            (
+                player_id, 
+                seed_id, 
+                room_link,
+                start_time,
+                complete_time
+            ) 
+            VALUES
+            (
+                (SELECT PLAYER_ID FROM players WHERE discord_id = {discord_id}),
+                (SELECT SEED_ID FROM daily_seeds WHERE SEED_DATE = DATE_FORMAT(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', 'America/New_York'), '%Y-%m-%d')),
+                '{room_link}',
+                CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', 'America/New_York'),
+                null
+            );"""
+        execute(conn, sql)
+    close_connection(conn)
+    return room_link, seed_zip_path
+
+def get_players_daily_seed_room_link(discord_id):
+    conn = get_connection()
+    sql = f"""
+    SELECT
+        ps.room_link,
+        ds.seed_id
+    FROM player_seeds ps
+    JOIN players p
+    ON ps.player_id = p.player_id
+    AND p.discord_id = {discord_id}
+    JOIN daily_seeds ds
+    ON ps.seed_id = ds.seed_id
+    AND ds.SEED_DATE = DATE_FORMAT(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', 'America/New_York'), '%Y-%m-%d');"""
+    results = execute(conn, sql, fetch_results = True)
+    if len(results) > 0:
+        room_link = results[0]["room_link"]
+        seed_id = results[0]["seed_id"]
+        close_connection(conn)
+        return seed_id, room_link
+    close_connection(conn)
+    return None, None
+
+def daily_seed_already_complete(discord_id):
+    conn = get_connection()
+    sql = f"""
+    SELECT
+        ps.complete_time
+    FROM player_seeds ps
+    JOIN players p
+    ON ps.player_id = p.player_id
+    AND p.discord_id = {discord_id}
+    JOIN daily_seeds ds
+    ON ps.seed_id = ds.seed_id
+    AND ds.SEED_DATE = DATE_FORMAT(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', 'America/New_York'), '%Y-%m-%d')
+    WHERE ps.complete_time is not null;
+    """
+    results = execute(conn, sql, fetch_results = True)
+    if len(results) > 0:
+        close_connection(conn)
+        return True
+    close_connection(conn)
+    return False
+
+def daily_seed_started(discord_id):
+    conn = get_connection()
+    sql = f"""
+    SELECT
+        1
+    FROM player_seeds ps
+    JOIN players p
+    ON ps.player_id = p.player_id
+    AND p.discord_id = {discord_id}
+    JOIN daily_seeds ds
+    ON ps.seed_id = ds.seed_id
+    AND ds.SEED_DATE = DATE_FORMAT(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', 'America/New_York'), '%Y-%m-%d');
+    """
+    results = execute(conn, sql, fetch_results = True)
+    if len(results) > 0:
+        close_connection(conn)
+        return True
+    close_connection(conn)
+    return False
+
+def check_daily_seed_complete(discord_id):
+    print("Checking if seed has already been started by player...")
+    if not daily_seed_started(discord_id):
+        return "Daily seed not started."
+    print("Checking if seed has already been completed by player...")
+    if daily_seed_already_complete(discord_id):
+        return "Daily seed is already completed!"
+    print("Getting players seed_id and room_link...")
+    seed_id, room_link = get_players_daily_seed_room_link(discord_id)
+    print("Checking if that room has all slots complete...")
+    seed_complete = html_tools.all_slots_goaled(room_link)
+    if not seed_complete:
+        return "All slots in your daily seed room have not goaled."
+    conn = get_connection()
+    sql = f"""UPDATE player_seeds
+            SET complete_time = CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', 'America/New_York')
+            WHERE seed_id = {seed_id}
+            and room_link = '{room_link}';"""
+    execute(conn, sql)
+    close_connection(conn)
+    return "Seed is now complete!"
