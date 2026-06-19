@@ -183,6 +183,20 @@ def daily_duo_leaderboard():
         print(f'Error in daily_duo_leaderboard: {e}')
         return jsonify({'error': 'Something went wrong'}), 500
 
+@app.route('/kh1.apworld', methods=['GET'])
+def kh1_apworld():
+    try:
+        buffer = ap_tools.build_kh1_apworld()
+        return send_file(
+            buffer,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name='kh1.apworld'
+        )
+    except Exception as e:
+        print(f'Error in kh1_apworld: {e}')
+        return jsonify({'error': 'Something went wrong'}), 500
+
 @app.route('/oauth/login', methods=['GET'])
 def oauth_login():
     return_to = request.args.get('return_to', '')
