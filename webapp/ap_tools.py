@@ -1,6 +1,7 @@
 import Utils as ap_utils
 import Generate as ap_generate
 import requests
+import io
 import os
 import shutil
 import sys
@@ -143,6 +144,22 @@ def extract_zip(zip_file_path):
 
 def set_root():
     ap_utils.local_path.cached_path = AP_ROOT
+
+def build_kh1_apworld():
+    """Zips the worlds/kh1 package into an in-memory .apworld archive."""
+    world_dir = os.path.join(AP_ROOT, 'worlds', 'kh1')
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        for root, dirs, files in os.walk(world_dir):
+            dirs[:] = [d for d in dirs if d != '__pycache__']
+            for filename in files:
+                if filename.endswith('.pyc'):
+                    continue
+                file_path = os.path.join(root, filename)
+                arcname = os.path.join('kh1', os.path.relpath(file_path, world_dir))
+                zip_file.write(file_path, arcname)
+    buffer.seek(0)
+    return buffer
 
 def generate(players_folder):
     sys.argv.extend(["--player_files_path", players_folder])
