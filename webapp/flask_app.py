@@ -111,6 +111,7 @@ def daily_seed_complete():
         return_string = mysql_tools.check_daily_seed_complete(discord_id)
         return jsonify({'message': return_string}), 200
     except Exception as e:
+        print(f'Error in daily_seed_complete: {e}')
         return jsonify({'error': 'Something went wrong'}), 500
 
 @app.route('/daily_leaderboard', methods=['POST'])
