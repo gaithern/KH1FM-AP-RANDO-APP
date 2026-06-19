@@ -215,10 +215,9 @@ def check_daily_seed_complete(discord_id):
 
 def get_daily_leaderboard():
     conn = get_connection()
-    sql = f"""select * from vw_daily_leaderboard"""
+    sql = "select * from vw_daily_leaderboard"
     results = execute(conn, sql, fetch_results = True)
-    return_str = ""
-    player = 1
+    close_connection(conn)
     digit_map = {
         "0": "0️⃣",
         "1": "🥇",
@@ -231,10 +230,12 @@ def get_daily_leaderboard():
         "8": "8️⃣",
         "9": "9️⃣"
     }
-    for row in results:
-        if str(player) in digit_map.keys():
-            return_str = f"\n{digit_map[str(player)]}: <@{row["discord_id"]}> - {row["run_time"]}"
-    return return_str
+    lines = []
+    for player, row in enumerate(results, start=1):
+        if str(player) not in digit_map:
+            break
+        lines.append(f"{digit_map[str(player)]}: <@{row['discord_id']}> - {row['run_time']}")
+    return "\n".join(lines)
 
 def daily_duo_get_current_team(discord_id):
     conn = get_connection()
@@ -437,10 +438,9 @@ def get_teams_daily_seed_room_link(current_team):
 
 def get_daily_duo_leaderboard():
     conn = get_connection()
-    sql = f"""select * from vw_daily_duo_leaderboard"""
+    sql = "select * from vw_daily_duo_leaderboard"
     results = execute(conn, sql, fetch_results = True)
-    return_str = ""
-    player = 1
+    close_connection(conn)
     digit_map = {
         "0": "0️⃣",
         "1": "🥇",
@@ -453,7 +453,9 @@ def get_daily_duo_leaderboard():
         "8": "8️⃣",
         "9": "9️⃣"
     }
-    for row in results:
-        if str(player) in digit_map.keys():
-            return_str = f"\n{digit_map[str(player)]}: <@{row["p1_discord_id"]}> + <@{row["p2_discord_id"]}> - {row["run_time"]}"
-    return return_str
+    lines = []
+    for player, row in enumerate(results, start=1):
+        if str(player) not in digit_map:
+            break
+        lines.append(f"{digit_map[str(player)]}: <@{row['p1_discord_id']}> + <@{row['p2_discord_id']}> - {row['run_time']}")
+    return "\n".join(lines)
