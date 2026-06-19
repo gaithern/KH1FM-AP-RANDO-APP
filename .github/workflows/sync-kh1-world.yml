@@ -30,7 +30,7 @@ jobs:
           rsync -a --delete \
             --exclude '.git/' --exclude '.github/' \
             --exclude '/ap_tools.py' --exclude '/envr.py' --exclude '/flask_app.py' \
-            --exclude '/html_tools.py' --exclude '/mysql_tools.py' \
+            --exclude '/html_tools.py' --exclude '/mysql_tools.py' --exclude '/oauth_tools.py' \
             --exclude '__pycache__/' --exclude '*.pyc' \
             upstream-kh1fm/ webapp/
 
