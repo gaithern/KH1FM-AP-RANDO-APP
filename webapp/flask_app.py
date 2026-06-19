@@ -119,6 +119,7 @@ def daily_leaderboard():
         return_string = mysql_tools.get_daily_leaderboard()
         return jsonify({'message': return_string}), 200
     except Exception as e:
+        print(f'Error in daily_leaderboard: {e}')
         return jsonify({'error': 'Something went wrong'}), 500
 
 from flask import Flask, request, jsonify
@@ -178,6 +179,7 @@ def daily_duo_leaderboard():
         return_string = mysql_tools.get_daily_duo_leaderboard()
         return jsonify({'message': return_string}), 200
     except Exception as e:
+        print(f'Error in daily_duo_leaderboard: {e}')
         return jsonify({'error': 'Something went wrong'}), 500
 
 @app.route('/oauth/login', methods=['GET'])
