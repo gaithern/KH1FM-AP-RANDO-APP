@@ -28,7 +28,7 @@ jobs:
       - name: Install/update Python dependencies
         run: |
           ssh -i ~/.ssh/id_ed25519 "${{ secrets.PA_USERNAME }}@ssh.pythonanywhere.com" \
-            "grep -viE '^kivy' /home/${{ secrets.PA_USERNAME }}/mysite/requirements.txt > /tmp/prod-requirements.txt && /home/${{ secrets.PA_USERNAME }}/.virtualenvs/kh1appvenv/bin/pip install -U -r /tmp/prod-requirements.txt"
+            "/home/${{ secrets.PA_USERNAME }}/.virtualenvs/kh1appvenv/bin/pip install -U -r /home/${{ secrets.PA_USERNAME }}/mysite/requirements.txt"
 
       - name: Sync prod Discord bot
         run: |
