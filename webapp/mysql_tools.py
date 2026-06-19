@@ -231,11 +231,17 @@ def get_daily_leaderboard():
         "9": "9️⃣"
     }
     lines = []
+    leaderboard = []
     for player, row in enumerate(results, start=1):
         if str(player) not in digit_map:
             break
         lines.append(f"{digit_map[str(player)]}: <@{row['discord_id']}> - {row['run_time']}")
-    return "\n".join(lines)
+        leaderboard.append({
+            'rank': player,
+            'discord_name': row['discord_name'],
+            'run_time': str(row['run_time']) if row['run_time'] is not None else None,
+        })
+    return "\n".join(lines), leaderboard
 
 def daily_duo_get_current_team(discord_id):
     conn = get_connection()

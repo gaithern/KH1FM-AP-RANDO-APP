@@ -116,8 +116,8 @@ def daily_seed_complete():
 @app.route('/daily_leaderboard', methods=['POST'])
 def daily_leaderboard():
     try:
-        return_string = mysql_tools.get_daily_leaderboard()
-        return jsonify({'message': return_string}), 200
+        message, leaderboard = mysql_tools.get_daily_leaderboard()
+        return jsonify({'message': message, 'leaderboard': leaderboard}), 200
     except Exception as e:
         print(f'Error in daily_leaderboard: {e}')
         return jsonify({'error': 'Something went wrong'}), 500
