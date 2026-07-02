@@ -82,6 +82,16 @@ automation writes back to it.
   headless WSGI process. Installing only the top-level file was the cause of
   a full dev-site outage once (see commit history around the `protobuf`
   fix) — don't reintroduce that filtering.
+- The pip install step deliberately omits `-U`/`--upgrade`. Each
+  `requirements.txt` is installed in a separate `pip install` invocation
+  (one per file), and `-U` forces pip to bump *any* package to the latest
+  version matching that file's constraint — including packages another
+  file pins exactly with `==`. A loose bound like `typing-extensions>=4.7`
+  in one world's requirements file upgrading the shared `typing-extensions`
+  past another file's `typing_extensions==4.15.0` pin caused the same
+  `ModuleUpdate` `EOFError` outage on prod. Without `-U`, pip only touches
+  a package when the current file's own requirement isn't already
+  satisfied, so exact pins from other files can't get clobbered.
 - Reloads the dev PA web app via PA's API.
 
 ### `deploy-prod.yml`
