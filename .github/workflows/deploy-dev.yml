@@ -32,7 +32,7 @@ jobs:
       - name: Install/update Python dependencies
         run: |
           ssh -i ~/.ssh/id_ed25519 "${{ secrets.PA_USERNAME }}@ssh.pythonanywhere.com" \
-            "find /home/${{ secrets.PA_USERNAME }}/mysite_dev -name requirements.txt -print0 | xargs -0 -n1 /home/${{ secrets.PA_USERNAME }}/.virtualenvs/kh1appvenv_dev/bin/pip install -U -r"
+            "find /home/${{ secrets.PA_USERNAME }}/mysite_dev -name requirements.txt -print0 | xargs -0 -n1 /home/${{ secrets.PA_USERNAME }}/.virtualenvs/kh1appvenv_dev/bin/pip install -r"
 
       - name: Reload dev web app
         run: |
