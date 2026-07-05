@@ -14,8 +14,10 @@ DEFAULT_CATEGORIES = ["Keyblades", "Accessory"]
 
 # Excluded entirely from the draft UI (not just unchecked by default) -
 # Augment and Weapons have no single icon that represents them well, and
-# Stat Ups/Limited Level Up were dropped as too fiddly for a quick draft.
-EXCLUDED_CATEGORIES = {"Augment", "Stat Ups", "Limited Level Up", "Weapons"}
+# the rest were dropped as too fiddly/uninteresting for a quick draft.
+EXCLUDED_CATEGORIES = {
+    "Augment", "Camping", "Item", "Level Up", "Limited Level Up", "Stat Ups", "Weapons",
+}
 
 
 def available_categories() -> list[str]:
