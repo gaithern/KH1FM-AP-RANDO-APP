@@ -12,10 +12,16 @@ import random
 
 DEFAULT_CATEGORIES = ["Keyblades", "Accessory"]
 
+# Excluded entirely from the draft UI (not just unchecked by default) -
+# Augment and Weapons have no single icon that represents them well, and
+# Stat Ups/Limited Level Up were dropped as too fiddly for a quick draft.
+EXCLUDED_CATEGORIES = {"Augment", "Stat Ups", "Limited Level Up", "Weapons"}
+
 
 def available_categories() -> list[str]:
     from worlds.kh1.Items import item_table
-    return sorted({data.category for data in item_table.values()})
+    categories = {data.category for data in item_table.values()}
+    return sorted(categories - EXCLUDED_CATEGORIES)
 
 
 def build_pool(item_categories: list[str], count: int) -> list[tuple[str, str]]:
