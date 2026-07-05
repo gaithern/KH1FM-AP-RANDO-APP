@@ -34,6 +34,11 @@ jobs:
           ssh -i ~/.ssh/id_ed25519 "${{ secrets.PA_USERNAME }}@ssh.pythonanywhere.com" \
             "find /home/${{ secrets.PA_USERNAME }}/mysite_dev -name requirements.txt -print0 | xargs -0 -n1 /home/${{ secrets.PA_USERNAME }}/.virtualenvs/kh1appvenv_dev/bin/pip install -r"
 
+      - name: TEMP DEBUG - secret lengths (never prints the values)
+        run: |
+          echo -n "${{ secrets.PA_API_TOKEN }}" | wc -c
+          echo -n "${{ secrets.PA_USERNAME }}" | wc -c
+
       - name: Reload dev web app
         run: |
           curl -sf -X POST \
