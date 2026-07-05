@@ -172,7 +172,10 @@ def generate(players_folder, server_password=None):
     created from the resulting zip can be administered via `!admin login
     <server_password>` - otherwise (the default, used by /generate,
     /daily_seed, /daily_duo_seed) admin is disabled, unchanged from
-    today's behavior."""
+    today's behavior. Returns (output_zip_path, multiworld) - callers that
+    need the resolved player name (e.g. after a YAML's `name:` used a
+    template placeholder like {number}) can read
+    multiworld.get_player_name(1)."""
     sys.argv.extend(["--player_files_path", players_folder])
     set_root()
     erargs, seed = ap_generate.main()
@@ -182,7 +185,7 @@ def generate(players_folder, server_password=None):
     if server_password is not None:
         baked_server_options = {**get_settings().server_options.as_dict(), "server_password": server_password}
     multiworld = ERmain(erargs, seed, baked_server_options=baked_server_options)
-    return (f"{AP_ROOT}output/AP_{multiworld.seed_name}.zip")
+    return (f"{AP_ROOT}output/AP_{multiworld.seed_name}.zip", multiworld)
 
 def new_room_link(seed_link):
     """Derives a fresh room from an already-uploaded seed link, same as
@@ -229,7 +232,7 @@ def get_inner_zip_name(file_path):
     return ap_zip_file
 
 def generate_daily_seed(date):
-    generation_zip_filepath = generate(AP_DAILY_SEED_YAML_DIR)
+    generation_zip_filepath, _ = generate(AP_DAILY_SEED_YAML_DIR)
     generation_zip_filename = remove_path_from_filepath(generation_zip_filepath)
     move_file(generation_zip_filepath, AP_DAILY_SEED_OUTPUT_DIR)
     generation_zip = f"{AP_DAILY_SEED_OUTPUT_DIR}/{generation_zip_filename}"
@@ -238,7 +241,7 @@ def generate_daily_seed(date):
     return seed_link, inner_zip_name
 
 def generate_daily_duo_seed(date):
-    generation_zip_filepath = generate(AP_DAILY_DUO_SEED_YAML_DIR)
+    generation_zip_filepath, _ = generate(AP_DAILY_DUO_SEED_YAML_DIR)
     generation_zip_filename = remove_path_from_filepath(generation_zip_filepath)
     move_file(generation_zip_filepath, AP_DAILY_DUO_SEED_OUTPUT_DIR)
     generation_zip = f"{AP_DAILY_DUO_SEED_OUTPUT_DIR}/{generation_zip_filename}"

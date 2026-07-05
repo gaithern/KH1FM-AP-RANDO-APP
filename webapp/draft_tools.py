@@ -181,7 +181,7 @@ def set_error(game_id: int, message: str) -> None:
     mysql_tools.close_connection(conn)
 
 
-def start_generation(game_id: int, caller_player_id: int, slot_name: str, seed_zip_path: str) -> None:
+def start_generation(game_id: int, caller_player_id: int, seed_zip_path: str) -> None:
     game = get_game(game_id)
     if game is None:
         raise ValueError("No such draft game")
@@ -192,18 +192,21 @@ def start_generation(game_id: int, caller_player_id: int, slot_name: str, seed_z
     conn = mysql_tools.get_connection()
     mysql_tools.execute(
         conn,
-        "UPDATE draft_games SET status = %s, slot_name = %s, seed_zip_path = %s WHERE game_id = %s",
-        args=(STATUS_GENERATING, slot_name, seed_zip_path, game_id),
+        "UPDATE draft_games SET status = %s, seed_zip_path = %s WHERE game_id = %s",
+        args=(STATUS_GENERATING, seed_zip_path, game_id),
     )
     mysql_tools.close_connection(conn)
 
 
-def set_generation_result(game_id: int, server_password: str, seed_link: str) -> None:
+def set_generation_result(game_id: int, server_password: str, seed_link: str, slot_name: str) -> None:
+    # slot_name is the resolved name from the generated multiworld, not a
+    # text-parse of the uploaded YAML - see _run_draft_finalize in
+    # flask_app.py for why (template placeholders like "Player{number}").
     conn = mysql_tools.get_connection()
     mysql_tools.execute(
         conn,
-        "UPDATE draft_games SET status = %s, server_password = %s, seed_link = %s WHERE game_id = %s",
-        args=(STATUS_SENDING_ITEMS, server_password, seed_link, game_id),
+        "UPDATE draft_games SET status = %s, server_password = %s, seed_link = %s, slot_name = %s WHERE game_id = %s",
+        args=(STATUS_SENDING_ITEMS, server_password, seed_link, slot_name, game_id),
     )
     mysql_tools.close_connection(conn)
 

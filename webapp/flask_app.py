@@ -59,7 +59,7 @@ def generate():
         try:
             file.save(filename)
             try:
-                file_path = ap_tools.generate(player_path)
+                file_path, _ = ap_tools.generate(player_path)
                 unzipped_folder_path = file_path[:-4]
                 seed_link = ap_tools.get_seed_link(file_path)
                 inner_zip = ap_tools.get_inner_zip_name(file_path)
@@ -307,13 +307,6 @@ def draft_state(game_id):
         'error_message': game['error_message'],
     }), 200
 
-def _parse_yaml_slot_name(filepath):
-    with open(filepath, 'r', encoding='utf-8') as f:
-        for line in f:
-            if line.startswith('name:'):
-                return line[len('name:'):].strip()
-    return None
-
 @app.route('/draft/<int:game_id>/upload_yaml', methods=['POST'])
 def draft_upload_yaml(game_id):
     player_id = _require_draft_identity(request.form)
@@ -330,12 +323,8 @@ def draft_upload_yaml(game_id):
     filepath = os.path.join(game_folder, file.filename)
     file.save(filepath)
 
-    slot_name = _parse_yaml_slot_name(filepath)
-    if not slot_name:
-        return jsonify({'error': 'Could not find a slot name (name:) in the uploaded YAML'}), 400
-
     try:
-        draft_tools.start_generation(game_id, player_id, slot_name, filepath)
+        draft_tools.start_generation(game_id, player_id, filepath)
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
 
@@ -349,10 +338,15 @@ def _run_draft_finalize(game_id, game_folder):
     instead of polling forever."""
     try:
         server_password = secrets.token_urlsafe(16)
-        file_path = ap_tools.generate(game_folder, server_password=server_password)
+        file_path, multiworld = ap_tools.generate(game_folder, server_password=server_password)
+        # The host's YAML `name:` can use AP's templating placeholders (e.g.
+        # "Player{number}") that only get resolved during generation, so the
+        # real slot name has to come from the generated multiworld, not a
+        # text-parse of the uploaded YAML.
+        slot_name = multiworld.get_player_name(1)
         seed_link = ap_tools.get_seed_link(file_path)
         ap_tools.remove_output(file_path)
-        draft_tools.set_generation_result(game_id, server_password, seed_link)
+        draft_tools.set_generation_result(game_id, server_password, seed_link, slot_name)
 
         game = draft_tools.get_game(game_id)
         for seat in draft_tools.get_seats(game_id):
