@@ -39,6 +39,7 @@ CREATE TABLE draft_pool (
     pool_id     INT AUTO_INCREMENT PRIMARY KEY,
     game_id     INT NOT NULL,
     item_name   VARCHAR(255) NOT NULL,
+    category    VARCHAR(64) NOT NULL,
     taken_flag  CHAR(1) NOT NULL DEFAULT 'N',
     FOREIGN KEY (game_id) REFERENCES draft_games(game_id)
 );

@@ -111,22 +111,23 @@ def start_game(game_id: int, caller_player_id: int) -> None:
         raise ValueError("Need at least 2 players to start")
     pool_items = build_pool(game["item_categories"].split(","), len(seats) * game["picks_per_player"])
     conn = mysql_tools.get_connection()
-    for item_name in pool_items:
-        mysql_tools.execute(conn, "INSERT INTO draft_pool (game_id, item_name) VALUES (%s, %s)",
-                             args=(game_id, item_name))
+    for item_name, category in pool_items:
+        mysql_tools.execute(conn, "INSERT INTO draft_pool (game_id, item_name, category) VALUES (%s, %s, %s)",
+                             args=(game_id, item_name, category))
     mysql_tools.execute(conn, "UPDATE draft_games SET status = %s WHERE game_id = %s",
                          args=(STATUS_DRAFTING, game_id))
     mysql_tools.close_connection(conn)
 
 
-def get_pool(game_id: int) -> list[str]:
+def get_pool(game_id: int) -> list[dict]:
     conn = mysql_tools.get_connection()
     rows = mysql_tools.execute(
-        conn, "SELECT item_name FROM draft_pool WHERE game_id = %s AND taken_flag = 'N' ORDER BY item_name",
+        conn,
+        "SELECT item_name, category FROM draft_pool WHERE game_id = %s AND taken_flag = 'N' ORDER BY item_name",
         args=(game_id,), fetch_results=True,
     )
     mysql_tools.close_connection(conn)
-    return [row["item_name"] for row in rows]
+    return rows
 
 
 def get_picks(game_id: int) -> list[dict]:

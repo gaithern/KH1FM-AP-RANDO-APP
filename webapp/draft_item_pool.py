@@ -18,12 +18,14 @@ def available_categories() -> list[str]:
     return sorted({data.category for data in item_table.values()})
 
 
-def build_pool(item_categories: list[str], count: int) -> list[str]:
-    """Returns exactly `count` items drawn from the given categories - no
-    extras sitting around unpicked. Sampled without replacement as long as
-    there are enough unique items; once those run out, fills the remainder
-    with random duplicates rather than raising, so a small category
-    selection can still support a big draft."""
+def build_pool(item_categories: list[str], count: int) -> list[tuple[str, str]]:
+    """Returns exactly `count` (item_name, category) pairs drawn from the
+    given categories - no extras sitting around unpicked. Sampled without
+    replacement as long as there are enough unique items; once those run
+    out, fills the remainder with random duplicates rather than raising, so
+    a small category selection can still support a big draft. Category is
+    included alongside each name so the frontend can show a representative
+    icon per item without needing the full item table."""
     from worlds.kh1.Items import item_table
     unknown = set(item_categories) - set(available_categories())
     if unknown:
@@ -33,9 +35,10 @@ def build_pool(item_categories: list[str], count: int) -> list[str]:
         raise ValueError("Selected item categories have no draftable items")
 
     if count <= len(candidates):
-        return random.sample(candidates, count)
+        names = random.sample(candidates, count)
+    else:
+        names = list(candidates)
+        names.extend(random.choices(candidates, k=count - len(candidates)))
+        random.shuffle(names)
 
-    pool = list(candidates)
-    pool.extend(random.choices(candidates, k=count - len(candidates)))
-    random.shuffle(pool)
-    return pool
+    return [(name, item_table[name].category) for name in names]
