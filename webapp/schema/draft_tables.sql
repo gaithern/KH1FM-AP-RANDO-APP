@@ -32,11 +32,14 @@ CREATE TABLE draft_seats (
     FOREIGN KEY (player_id) REFERENCES players(player_id)
 );
 
+-- item_name is NOT unique per game_id - build_pool() fills out small
+-- category selections with duplicate items rather than leaving the draft
+-- short, so pool_id is the row identity, not (game_id, item_name).
 CREATE TABLE draft_pool (
+    pool_id     INT AUTO_INCREMENT PRIMARY KEY,
     game_id     INT NOT NULL,
     item_name   VARCHAR(255) NOT NULL,
     taken_flag  CHAR(1) NOT NULL DEFAULT 'N',
-    PRIMARY KEY (game_id, item_name),
     FOREIGN KEY (game_id) REFERENCES draft_games(game_id)
 );
 

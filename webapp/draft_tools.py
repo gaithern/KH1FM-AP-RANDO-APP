@@ -109,7 +109,7 @@ def start_game(game_id: int, caller_player_id: int) -> None:
     seats = get_seats(game_id)
     if len(seats) < 2:
         raise ValueError("Need at least 2 players to start")
-    pool_items = build_pool(game["item_categories"].split(","))
+    pool_items = build_pool(game["item_categories"].split(","), len(seats) * game["picks_per_player"])
     conn = mysql_tools.get_connection()
     for item_name in pool_items:
         mysql_tools.execute(conn, "INSERT INTO draft_pool (game_id, item_name) VALUES (%s, %s)",
@@ -156,17 +156,27 @@ def record_pick(game_id: int, caller_player_id: int, item_name: str) -> None:
     if on_the_clock is None or seats[on_the_clock]["seat_number"] != seat["seat_number"]:
         raise ValueError("It is not your turn")
 
-    if item_name not in get_pool(game_id):
-        raise ValueError("That item is not available")
-
     conn = mysql_tools.get_connection()
+    # Claim one specific untaken row by pool_id, not by item_name - the pool
+    # can contain duplicate item names (build_pool fills out small
+    # categories with repeats), so updating by item_name alone would mark
+    # every copy of that item taken instead of just this one.
+    available_rows = mysql_tools.execute(
+        conn, "SELECT pool_id FROM draft_pool WHERE game_id = %s AND item_name = %s AND taken_flag = 'N' LIMIT 1",
+        args=(game_id, item_name), fetch_results=True,
+    )
+    if not available_rows:
+        mysql_tools.close_connection(conn)
+        raise ValueError("That item is not available")
+    pool_id = available_rows[0]["pool_id"]
+
     mysql_tools.execute(
         conn, "INSERT INTO draft_picks (game_id, pick_number, seat_number, item_name) VALUES (%s, %s, %s, %s)",
         args=(game_id, len(picks) + 1, seat["seat_number"], item_name),
     )
     mysql_tools.execute(
-        conn, "UPDATE draft_pool SET taken_flag = 'Y' WHERE game_id = %s AND item_name = %s",
-        args=(game_id, item_name),
+        conn, "UPDATE draft_pool SET taken_flag = 'Y' WHERE pool_id = %s",
+        args=(pool_id,),
     )
     if draft_format.is_draft_complete(len(seats), game["picks_per_player"], len(picks) + 1):
         mysql_tools.execute(conn, "UPDATE draft_games SET status = %s WHERE game_id = %s",

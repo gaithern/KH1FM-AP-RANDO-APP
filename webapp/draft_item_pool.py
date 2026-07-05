@@ -8,6 +8,8 @@ Worlds categories, which must not be draftable away from a player who
 needs them), and none are filler consumables (the Item category).
 """
 
+import random
+
 DEFAULT_CATEGORIES = ["Keyblades", "Accessory"]
 
 
@@ -16,9 +18,24 @@ def available_categories() -> list[str]:
     return sorted({data.category for data in item_table.values()})
 
 
-def build_pool(item_categories: list[str]) -> list[str]:
+def build_pool(item_categories: list[str], count: int) -> list[str]:
+    """Returns exactly `count` items drawn from the given categories - no
+    extras sitting around unpicked. Sampled without replacement as long as
+    there are enough unique items; once those run out, fills the remainder
+    with random duplicates rather than raising, so a small category
+    selection can still support a big draft."""
     from worlds.kh1.Items import item_table
     unknown = set(item_categories) - set(available_categories())
     if unknown:
         raise ValueError(f"Unknown item categories: {sorted(unknown)}")
-    return sorted(name for name, data in item_table.items() if data.category in item_categories)
+    candidates = [name for name, data in item_table.items() if data.category in item_categories]
+    if not candidates:
+        raise ValueError("Selected item categories have no draftable items")
+
+    if count <= len(candidates):
+        return random.sample(candidates, count)
+
+    pool = list(candidates)
+    pool.extend(random.choices(candidates, k=count - len(candidates)))
+    random.shuffle(pool)
+    return pool
