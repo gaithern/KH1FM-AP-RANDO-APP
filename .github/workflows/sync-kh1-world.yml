@@ -31,6 +31,9 @@ jobs:
             --exclude '.git/' --exclude '.github/' \
             --exclude '/ap_tools.py' --exclude '/envr.py' --exclude '/flask_app.py' \
             --exclude '/html_tools.py' --exclude '/mysql_tools.py' --exclude '/oauth_tools.py' \
+            --exclude '/draft_tools.py' --exclude '/draft_formats.py' \
+            --exclude '/draft_item_pool.py' --exclude '/draft_send_tools.py' \
+            --exclude '/schema/' \
             --exclude '__pycache__/' --exclude '*.pyc' \
             upstream-kh1fm/ webapp/
 

@@ -1,13 +1,20 @@
 from flask import Flask, request, jsonify, send_file, make_response, redirect
 from flask_cors import CORS
 import pymysql  # Import the PyMySQL library
+import asyncio
 import os
 import requests
+import secrets
+import threading
 import urllib.parse
-from envr import AP_UPLOAD_URL, YAMLS_ROOT, ALLOWED_RETURN_ORIGINS
+from envr import AP_UPLOAD_URL, YAMLS_ROOT, DRAFT_YAMLS_ROOT, ALLOWED_RETURN_ORIGINS
 import mysql_tools
 import ap_tools
 import oauth_tools
+import draft_formats
+import draft_item_pool
+import draft_send_tools
+import draft_tools
 
 app = Flask(__name__)
 CORS(app)
@@ -182,6 +189,185 @@ def daily_duo_leaderboard():
     except Exception as e:
         print(f'Error in daily_duo_leaderboard: {e}')
         return jsonify({'error': 'Something went wrong'}), 500
+
+@app.route('/draft/item_categories', methods=['GET'])
+def draft_item_categories():
+    return jsonify({
+        'categories': draft_item_pool.available_categories(),
+        'default': draft_item_pool.DEFAULT_CATEGORIES,
+    }), 200
+
+def _require_draft_identity(data):
+    """Like get_identity_from_request, but also registers the player and
+    resolves their internal player_id (draft_tools' tables key off
+    player_id, same as the rest of the schema)."""
+    discord_id, discord_name = get_identity_from_request(data)
+    if discord_id is None:
+        return None
+    mysql_tools.register_player(discord_id, discord_name)
+    return draft_tools.get_player_id(discord_id)
+
+def _draft_identity_from_bearer():
+    """GET requests carry no JSON body, so /state only supports the
+    website-login Bearer token flow, not the discord_id/discord_name
+    fallback the bot uses."""
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return None
+    discord_id, _ = oauth_tools.verify_session_token(auth_header[len('Bearer '):])
+    return draft_tools.get_player_id(discord_id) if discord_id else None
+
+@app.route('/draft/create', methods=['POST'])
+def draft_create():
+    data = request.get_json(silent=True) or {}
+    player_id = _require_draft_identity(data)
+    if player_id is None:
+        return jsonify({'error': 'Not logged in'}), 401
+    try:
+        game_id = draft_tools.create_game(
+            player_id,
+            data.get('draft_type', 'snake'),
+            int(data['max_players']),
+            int(data['picks_per_player']),
+            data.get('item_categories') or draft_item_pool.DEFAULT_CATEGORIES,
+        )
+        return jsonify({'game_id': game_id}), 200
+    except (ValueError, KeyError, TypeError) as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/draft/join', methods=['POST'])
+def draft_join():
+    data = request.get_json(silent=True) or {}
+    player_id = _require_draft_identity(data)
+    if player_id is None:
+        return jsonify({'error': 'Not logged in'}), 401
+    try:
+        seat_number = draft_tools.join_game(int(data['game_id']), player_id)
+        return jsonify({'seat_number': seat_number}), 200
+    except (ValueError, KeyError, TypeError) as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/draft/<int:game_id>/start', methods=['POST'])
+def draft_start(game_id):
+    data = request.get_json(silent=True) or {}
+    player_id = _require_draft_identity(data)
+    if player_id is None:
+        return jsonify({'error': 'Not logged in'}), 401
+    try:
+        draft_tools.start_game(game_id, player_id)
+        return jsonify({'message': 'Draft started'}), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/draft/<int:game_id>/pick', methods=['POST'])
+def draft_pick(game_id):
+    data = request.get_json(silent=True) or {}
+    player_id = _require_draft_identity(data)
+    if player_id is None:
+        return jsonify({'error': 'Not logged in'}), 401
+    item_name = data.get('item_name')
+    if not item_name:
+        return jsonify({'error': 'item_name is required'}), 400
+    try:
+        draft_tools.record_pick(game_id, player_id, item_name)
+        return jsonify({'message': 'Pick recorded'}), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/draft/<int:game_id>/state', methods=['GET'])
+def draft_state(game_id):
+    player_id = _draft_identity_from_bearer()
+    game = draft_tools.get_game(game_id)
+    if game is None:
+        return jsonify({'error': 'No such draft game'}), 404
+
+    seats = draft_tools.get_seats(game_id)
+    picks = draft_tools.get_picks(game_id)
+    my_seat = next((s for s in seats if s['player_id'] == player_id), None) if player_id else None
+
+    on_the_clock_seat = None
+    if game['status'] == draft_tools.STATUS_DRAFTING and seats:
+        draft_format = draft_formats.get_draft_format(game['draft_type'])
+        on_the_clock_index = draft_format.seat_on_the_clock(len(seats), game['picks_per_player'], len(picks))
+        on_the_clock_seat = seats[on_the_clock_index]['seat_number'] if on_the_clock_index is not None else None
+
+    return jsonify({
+        'status': game['status'],
+        'draft_type': game['draft_type'],
+        'max_players': game['max_players'],
+        'picks_per_player': game['picks_per_player'],
+        'item_categories': game['item_categories'].split(','),
+        'is_host': player_id is not None and player_id == game['created_by_player_id'],
+        'seats': [{'seat_number': s['seat_number'], 'discord_name': s['discord_name']} for s in seats],
+        'pool': draft_tools.get_pool(game_id) if game['status'] != draft_tools.STATUS_LOBBY else [],
+        'picks': picks,
+        'on_the_clock_seat': on_the_clock_seat,
+        'your_turn': bool(my_seat) and on_the_clock_seat == (my_seat or {}).get('seat_number'),
+        'room_link': my_seat['room_link'] if my_seat else None,
+        'error_message': game['error_message'],
+    }), 200
+
+def _parse_yaml_slot_name(filepath):
+    with open(filepath, 'r', encoding='utf-8') as f:
+        for line in f:
+            if line.startswith('name:'):
+                return line[len('name:'):].strip()
+    return None
+
+@app.route('/draft/<int:game_id>/upload_yaml', methods=['POST'])
+def draft_upload_yaml(game_id):
+    player_id = _require_draft_identity(request.form)
+    if player_id is None:
+        return jsonify({'error': 'Not logged in'}), 401
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part in the request'}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+
+    game_folder = f'{DRAFT_YAMLS_ROOT}/{game_id}/'
+    prepare_path(game_folder)
+    filepath = os.path.join(game_folder, file.filename)
+    file.save(filepath)
+
+    slot_name = _parse_yaml_slot_name(filepath)
+    if not slot_name:
+        return jsonify({'error': 'Could not find a slot name (name:) in the uploaded YAML'}), 400
+
+    try:
+        draft_tools.start_generation(game_id, player_id, slot_name, filepath)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+    threading.Thread(target=_run_draft_finalize, args=(game_id, game_folder), daemon=True).start()
+    return jsonify({'message': 'Generating seed...'}), 200
+
+def _run_draft_finalize(game_id, game_folder):
+    """Runs off the request thread: generates the seed once, then creates
+    one room per seat and delivers that seat's own drafted items into it.
+    Any failure is recorded on the game so the frontend can surface it
+    instead of polling forever."""
+    try:
+        server_password = secrets.token_urlsafe(16)
+        file_path = ap_tools.generate(game_folder, server_password=server_password)
+        seed_link = ap_tools.get_seed_link(file_path)
+        ap_tools.remove_output(file_path)
+        draft_tools.set_generation_result(game_id, server_password, seed_link)
+
+        game = draft_tools.get_game(game_id)
+        for seat in draft_tools.get_seats(game_id):
+            room_link = ap_tools.new_room_link(seed_link)
+            draft_tools.set_seat_room_link(game_id, seat['seat_number'], room_link)
+
+            connect_address = ap_tools.get_room_connect_address(room_link)
+            item_names = [p['item_name'] for p in draft_tools.get_picks(game_id)
+                          if p['seat_number'] == seat['seat_number']]
+            asyncio.run(draft_send_tools.send_drafted_items(
+                connect_address, game['slot_name'], server_password, item_names))
+            draft_tools.set_seat_items_sent(game_id, seat['seat_number'])
+    except Exception as e:
+        print(f'Error finalizing draft game {game_id}: {e}')
+        draft_tools.set_error(game_id, str(e))
 
 @app.route('/kh1.apworld', methods=['GET'])
 def kh1_apworld():

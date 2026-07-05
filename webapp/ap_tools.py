@@ -1,14 +1,19 @@
 import Utils as ap_utils
 import Generate as ap_generate
+import re
 import requests
 import io
 import os
 import shutil
 import sys
+import time
 import zipfile
 from bs4 import BeautifulSoup
 
 from envr import AP_ROOT, AP_UPLOAD_URL, AP_DAILY_SEED_YAML_DIR, AP_DAILY_SEED_OUTPUT_DIR, AP_LOGIN, AP_DAILY_DUO_SEED_YAML_DIR, AP_DAILY_DUO_SEED_OUTPUT_DIR
+
+ROOM_PORT_POLL_TIMEOUT_SECONDS = 60
+ROOM_PORT_POLL_INTERVAL_SECONDS = 3
 
 def get_session():
     session = requests.Session()
@@ -161,13 +166,43 @@ def build_kh1_apworld():
     buffer.seek(0)
     return buffer
 
-def generate(players_folder):
+def generate(players_folder, server_password=None):
+    """Generates a multiworld from the YAMLs in players_folder. If
+    server_password is given, it's baked into the multidata so any room
+    created from the resulting zip can be administered via `!admin login
+    <server_password>` - otherwise (the default, used by /generate,
+    /daily_seed, /daily_duo_seed) admin is disabled, unchanged from
+    today's behavior."""
     sys.argv.extend(["--player_files_path", players_folder])
     set_root()
     erargs, seed = ap_generate.main()
     from Main import main as ERmain
-    multiworld = ERmain(erargs, seed)
+    from settings import get_settings
+    baked_server_options = None
+    if server_password is not None:
+        baked_server_options = {**get_settings().server_options.as_dict(), "server_password": server_password}
+    multiworld = ERmain(erargs, seed, baked_server_options=baked_server_options)
     return (f"{AP_ROOT}output/AP_{multiworld.seed_name}.zip")
+
+def new_room_link(seed_link):
+    """Derives a fresh room from an already-uploaded seed link, same as
+    mysql_tools.get_players_daily_seed does per-player for the daily seed."""
+    return get_redirected_url(seed_link.replace("/seed/", "/new_room/"))
+
+def get_room_connect_address(room_link):
+    """Polls the room page for its `/connect <address>:<port>` hint (shown
+    once the real archipelago.gg site has launched that room's server
+    process - this can lag a few seconds behind room creation) and returns
+    the address:port string an AP client can connect to."""
+    session = get_session()
+    deadline = time.monotonic() + ROOM_PORT_POLL_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        room_html = session.get(room_link).text
+        match = re.search(r"/connect ([^\s:']+):(\d+)", room_html)
+        if match:
+            return f"{match.group(1)}:{match.group(2)}"
+        time.sleep(ROOM_PORT_POLL_INTERVAL_SECONDS)
+    raise TimeoutError(f"Room at {room_link} never reported a connect address")
 
 def get_seed_link(file_path):
     with open(file_path, 'rb') as f:

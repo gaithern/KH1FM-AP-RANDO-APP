@@ -8,12 +8,21 @@ generation. Both the dev and prod sites run on PythonAnywhere (PA).
 
 ```
 webapp/                  Vendored Archipelago engine (mirrored from the
-                          gaithernOrg/ArchipelagoKH1FM fork) + 5 custom files
-  ap_tools.py             } custom glue: extracts the inner zip from an
-  flask_app.py            } AP-generated output, exposes the Flask endpoints
-  mysql_tools.py          } the bot/website call (/generate, /daily_seed,
-  html_tools.py           } /register, /daily_duo_*), player/daily-seed
-  envr.py                 } persistence, HTML helpers, and env-driven config
+                          gaithernOrg/ArchipelagoKH1FM fork) + custom glue files
+  ap_tools.py             } extracts the inner zip from an AP-generated
+  flask_app.py            } output, exposes the Flask endpoints the
+  mysql_tools.py          } bot/website call (/generate, /daily_seed,
+  html_tools.py           } /register, /daily_duo_*, /draft/*), player/
+  envr.py                 } daily-seed/draft-game persistence, HTML
+  oauth_tools.py          } scraping helpers, Discord OAuth (website
+                          } login), and env-driven config
+  draft_tools.py          } KH1 item draft feature: DB access, pluggable
+  draft_formats.py        } draft-format strategies (snake draft first),
+  draft_item_pool.py      } the draftable item pool (from worlds/kh1's
+  draft_send_tools.py     } item table), and live in-room item delivery
+                          } via `!admin /send_multiple`
+  schema/draft_tables.sql } draft feature's MySQL schema (apply manually -
+                          } see below)
 
 discord_bot.py           The Discord bot (commands: generate, daily_seed,
                           register, daily_duo_*)
@@ -25,10 +34,32 @@ discord_bot_settings.py  Bot config, all from os.environ
   sync-kh1-world.yml      Pulls engine updates from ArchipelagoKH1FM into main
 ```
 
-`ap_tools.py`, `envr.py`, `flask_app.py`, `html_tools.py`, and `mysql_tools.py`
-are the only files in `webapp/` that aren't part of the upstream Archipelago
-engine — everything else is a mirror of
-[gaithernOrg/ArchipelagoKH1FM](https://github.com/gaithernOrg/ArchipelagoKH1FM).
+`ap_tools.py`, `envr.py`, `flask_app.py`, `html_tools.py`, `mysql_tools.py`,
+`oauth_tools.py`, `draft_tools.py`, `draft_formats.py`, `draft_item_pool.py`,
+`draft_send_tools.py`, and `schema/` are the only things in `webapp/` that
+aren't part of the upstream Archipelago engine — everything else is a mirror
+of [gaithernOrg/ArchipelagoKH1FM](https://github.com/gaithernOrg/ArchipelagoKH1FM).
+All of them are excluded from `sync-kh1-world.yml`'s rsync so the engine sync
+never overwrites or deletes them.
+
+## KH1 item draft feature
+
+Lets a host create a draft game, seat other Discord-logged-in players, run a
+snake draft over a configurable KH1 item pool (`draft_item_pool.py`,
+categories sourced from `worlds/kh1/Items.py`), then upload one YAML to
+generate a single seed. Each seated player gets their own room of that same
+seed (same per-player-room pattern as Daily Seed —
+`mysql_tools.get_players_daily_seed`), and the backend connects to each room
+as admin (`draft_send_tools.py`, via `CommonClient.py`'s `CommonContext`
+directly rather than shelling out to a subprocess) to deliver that player's
+own drafted items via `!admin /send_multiple`. The admin password is a fresh
+secret generated per game and baked into the multidata at generation time
+(`ap_tools.generate(..., server_password=...)`) — never sent to the frontend.
+
+Before this feature works on a given environment (dev/prod), run
+`webapp/schema/draft_tables.sql` once against that environment's MySQL
+database, and set a `DRAFT_YAMLS_ROOT` env var (parallel to the existing
+`YAMLS_ROOT`) pointing at a writable directory for staged host YAMLs.
 
 ## Branching model
 
