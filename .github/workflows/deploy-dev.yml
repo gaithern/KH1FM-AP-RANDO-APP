@@ -34,17 +34,6 @@ jobs:
           ssh -i ~/.ssh/id_ed25519 "${{ secrets.PA_USERNAME }}@ssh.pythonanywhere.com" \
             "find /home/${{ secrets.PA_USERNAME }}/mysite_dev -name requirements.txt -print0 | xargs -0 -n1 /home/${{ secrets.PA_USERNAME }}/.virtualenvs/kh1appvenv_dev/bin/pip install -r"
 
-      - name: TEMP DEBUG - actual reload response status/body (token never printed)
-        run: |
-          echo -n "${{ secrets.PA_API_TOKEN }}" | wc -c
-          echo -n "${{ secrets.PA_USERNAME }}" | wc -c
-          curl -s -o /tmp/reload_resp.txt -w "HTTP_STATUS:%{http_code}\n" -X POST \
-            -H "Authorization: Token ${{ secrets.PA_API_TOKEN }}" \
-            "https://www.pythonanywhere.com/api/v0/user/${{ secrets.PA_USERNAME }}/webapps/dev-${{ secrets.PA_USERNAME }}.pythonanywhere.com/reload/"
-          echo "--- response body ---"
-          cat /tmp/reload_resp.txt
-          echo "--- end response body ---"
-
       - name: Reload dev web app
         run: |
           curl -sf -X POST \

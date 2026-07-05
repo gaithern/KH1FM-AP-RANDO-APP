@@ -6,43 +6,54 @@ sibling Discord-Card-Game-Draft-Bot project uses. `!admin` commands are
 plain `Say` packets (confirmed against MultiServer.py's _cmd_admin), so a
 minimal headless client modeled on CommonClient.py's own
 run_as_textclient()/TextContext is enough.
+
+CommonClient is imported lazily inside send_drafted_items() rather than at
+module load time - it pulls in MultiServer, the full worlds registry, and
+a ModuleUpdate.update() re-scan, which is exactly the startup cost
+ap_tools.generate() already avoids by lazily importing Main/Generate. This
+module used to import CommonClient at the top, which combined with
+draft_item_pool's top-level worlds import, pushed Flask's own startup past
+PythonAnywhere's reload timeout ("slow_startup_error").
 """
 
 import asyncio
 import collections
 
-from CommonClient import CommonContext, server_loop
-
 CONNECT_TIMEOUT_SECONDS = 30
 
 
-class _AdminSendContext(CommonContext):
-    tags = CommonContext.tags | {"TextOnly"}
-    game = ""  # empty matches any game (server negotiates), same as run_as_textclient
-    items_handling = 0b111
-    want_slot_data = False
+def _build_admin_context_class():
+    from CommonClient import CommonContext
 
-    def __init__(self, server_address: str, slot_name: str):
-        super().__init__(server_address, password=None)
-        self.auth = slot_name
-        self.connected_event = asyncio.Event()
-        self.connection_error: str | None = None
+    class _AdminSendContext(CommonContext):
+        tags = CommonContext.tags | {"TextOnly"}
+        game = ""  # empty matches any game (server negotiates), same as run_as_textclient
+        items_handling = 0b111
+        want_slot_data = False
 
-    async def server_auth(self, password_requested: bool = False):
-        await self.send_connect(game="")
+        def __init__(self, server_address: str, slot_name: str):
+            super().__init__(server_address, password=None)
+            self.auth = slot_name
+            self.connected_event = asyncio.Event()
+            self.connection_error: str | None = None
 
-    def on_package(self, cmd: str, args: dict):
-        if cmd == "ConnectionRefused":
-            self.connection_error = f"server refused the connection: {args.get('errors')}"
-        if cmd in ("Connected", "ConnectionRefused"):
-            self.connected_event.set()
+        async def server_auth(self, password_requested: bool = False):
+            await self.send_connect(game="")
 
-    def handle_connection_loss(self, msg: str) -> None:
-        # Called from server_loop's except blocks for transport-level failures
-        # (refused/invalid URI/timeout/etc.) that never reach the AP protocol
-        # handshake, so on_package's cmd-based branches above never fire.
-        self.connection_error = msg
-        super().handle_connection_loss(msg)
+        def on_package(self, cmd: str, args: dict):
+            if cmd == "ConnectionRefused":
+                self.connection_error = f"server refused the connection: {args.get('errors')}"
+            if cmd in ("Connected", "ConnectionRefused"):
+                self.connected_event.set()
+
+        def handle_connection_loss(self, msg: str) -> None:
+            # Called from server_loop's except blocks for transport-level failures
+            # (refused/invalid URI/timeout/etc.) that never reach the AP protocol
+            # handshake, so on_package's cmd-based branches above never fire.
+            self.connection_error = msg
+            super().handle_connection_loss(msg)
+
+    return _AdminSendContext
 
 
 async def send_drafted_items(server_address: str, slot_name: str, server_password: str,
@@ -51,7 +62,10 @@ async def send_drafted_items(server_address: str, slot_name: str, server_passwor
     using server_password, and grants each drafted item via !admin /send_multiple.
     Raises RuntimeError, with a specific reason, if the connection or admin
     login doesn't succeed."""
-    ctx = _AdminSendContext(server_address, slot_name)
+    from CommonClient import server_loop
+
+    AdminSendContext = _build_admin_context_class()
+    ctx = AdminSendContext(server_address, slot_name)
     ctx.server_task = asyncio.create_task(server_loop(ctx), name="draft admin server loop")
     try:
         connected_wait = asyncio.ensure_future(ctx.connected_event.wait())

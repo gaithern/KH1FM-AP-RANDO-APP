@@ -8,16 +8,16 @@ Worlds categories, which must not be draftable away from a player who
 needs them), and none are filler consumables (the Item category).
 """
 
-from worlds.kh1.Items import item_table
-
 DEFAULT_CATEGORIES = ["Keyblades", "Accessory"]
 
 
 def available_categories() -> list[str]:
+    from worlds.kh1.Items import item_table
     return sorted({data.category for data in item_table.values()})
 
 
 def build_pool(item_categories: list[str]) -> list[str]:
+    from worlds.kh1.Items import item_table
     unknown = set(item_categories) - set(available_categories())
     if unknown:
         raise ValueError(f"Unknown item categories: {sorted(unknown)}")
