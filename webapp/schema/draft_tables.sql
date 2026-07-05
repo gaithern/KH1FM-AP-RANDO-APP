@@ -5,6 +5,9 @@
 
 CREATE TABLE draft_games (
     game_id               INT AUTO_INCREMENT PRIMARY KEY,
+    -- Public identifier (URLs, API paths) - a random code rather than the
+    -- sequential game_id, so games can't be found by guessing low integers.
+    join_code             VARCHAR(10) NULL UNIQUE,
     created_by_player_id  INT NOT NULL,
     draft_type            VARCHAR(32) NOT NULL DEFAULT 'snake',
     status                VARCHAR(32) NOT NULL DEFAULT 'lobby',

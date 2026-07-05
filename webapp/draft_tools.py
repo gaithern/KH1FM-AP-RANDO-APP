@@ -5,9 +5,16 @@ reuses its get_connection/execute/close_connection helpers directly rather
 than duplicating them.
 """
 
+import secrets
+
 import mysql_tools
 from draft_formats import get_draft_format
 from draft_item_pool import build_pool
+
+# No 0/O/1/I/L - avoids characters that look alike when a player types a
+# code someone else read out loud or shared as a screenshot.
+JOIN_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+JOIN_CODE_LENGTH = 8
 
 STATUS_LOBBY = "lobby"
 STATUS_DRAFTING = "drafting"
@@ -27,17 +34,39 @@ def get_player_id(discord_id) -> int | None:
     return rows[0]["player_id"] if rows else None
 
 
+def _generate_join_code() -> str:
+    return "".join(secrets.choice(JOIN_CODE_ALPHABET) for _ in range(JOIN_CODE_LENGTH))
+
+
+def resolve_join_code(join_code: str) -> int | None:
+    """Public draft games are referenced everywhere outside this module
+    (URLs, API paths) by this random code rather than the sequential
+    game_id, so a low integer can't just be guessed/enumerated."""
+    conn = mysql_tools.get_connection()
+    rows = mysql_tools.execute(
+        conn, "SELECT game_id FROM draft_games WHERE join_code = %s", args=(join_code,), fetch_results=True
+    )
+    mysql_tools.close_connection(conn)
+    return rows[0]["game_id"] if rows else None
+
+
 def create_game(created_by_player_id: int, draft_type: str, max_players: int, picks_per_player: int,
-                item_categories: list[str]) -> int:
+                item_categories: list[str]) -> str:
     get_draft_format(draft_type)  # raises ValueError if unknown
     conn = mysql_tools.get_connection()
+
+    join_code = _generate_join_code()
+    while mysql_tools.execute(conn, "SELECT 1 FROM draft_games WHERE join_code = %s",
+                               args=(join_code,), fetch_results=True):
+        join_code = _generate_join_code()
+
     mysql_tools.execute(
         conn,
         """INSERT INTO draft_games
-           (created_by_player_id, draft_type, status, max_players, picks_per_player, item_categories)
-           VALUES (%s, %s, %s, %s, %s, %s)""",
+           (created_by_player_id, draft_type, status, max_players, picks_per_player, item_categories, join_code)
+           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
         args=(created_by_player_id, draft_type, STATUS_LOBBY, max_players, picks_per_player,
-              ",".join(item_categories)),
+              ",".join(item_categories), join_code),
     )
     rows = mysql_tools.execute(conn, "SELECT LAST_INSERT_ID() as game_id", fetch_results=True)
     game_id = rows[0]["game_id"]
@@ -46,7 +75,7 @@ def create_game(created_by_player_id: int, draft_type: str, max_players: int, pi
         args=(game_id, created_by_player_id),
     )
     mysql_tools.close_connection(conn)
-    return game_id
+    return join_code
 
 
 def get_game(game_id: int) -> dict | None:

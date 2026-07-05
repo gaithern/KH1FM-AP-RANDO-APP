@@ -224,14 +224,14 @@ def draft_create():
     if player_id is None:
         return jsonify({'error': 'Not logged in'}), 401
     try:
-        game_id = draft_tools.create_game(
+        join_code = draft_tools.create_game(
             player_id,
             data.get('draft_type', 'snake'),
             int(data['max_players']),
             int(data['picks_per_player']),
             data.get('item_categories') or draft_item_pool.DEFAULT_CATEGORIES,
         )
-        return jsonify({'game_id': game_id}), 200
+        return jsonify({'join_code': join_code}), 200
     except (ValueError, KeyError, TypeError) as e:
         return jsonify({'error': str(e)}), 400
 
@@ -241,30 +241,39 @@ def draft_join():
     player_id = _require_draft_identity(data)
     if player_id is None:
         return jsonify({'error': 'Not logged in'}), 401
+    game_id = draft_tools.resolve_join_code(data.get('join_code', ''))
+    if game_id is None:
+        return jsonify({'error': 'No such draft game'}), 404
     try:
-        seat_number = draft_tools.join_game(int(data['game_id']), player_id)
+        seat_number = draft_tools.join_game(game_id, player_id)
         return jsonify({'seat_number': seat_number}), 200
     except (ValueError, KeyError, TypeError) as e:
         return jsonify({'error': str(e)}), 400
 
-@app.route('/draft/<int:game_id>/start', methods=['POST'])
-def draft_start(game_id):
+@app.route('/draft/<join_code>/start', methods=['POST'])
+def draft_start(join_code):
     data = request.get_json(silent=True) or {}
     player_id = _require_draft_identity(data)
     if player_id is None:
         return jsonify({'error': 'Not logged in'}), 401
+    game_id = draft_tools.resolve_join_code(join_code)
+    if game_id is None:
+        return jsonify({'error': 'No such draft game'}), 404
     try:
         draft_tools.start_game(game_id, player_id)
         return jsonify({'message': 'Draft started'}), 200
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
 
-@app.route('/draft/<int:game_id>/pick', methods=['POST'])
-def draft_pick(game_id):
+@app.route('/draft/<join_code>/pick', methods=['POST'])
+def draft_pick(join_code):
     data = request.get_json(silent=True) or {}
     player_id = _require_draft_identity(data)
     if player_id is None:
         return jsonify({'error': 'Not logged in'}), 401
+    game_id = draft_tools.resolve_join_code(join_code)
+    if game_id is None:
+        return jsonify({'error': 'No such draft game'}), 404
     item_name = data.get('item_name')
     if not item_name:
         return jsonify({'error': 'item_name is required'}), 400
@@ -274,10 +283,11 @@ def draft_pick(game_id):
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
 
-@app.route('/draft/<int:game_id>/state', methods=['GET'])
-def draft_state(game_id):
+@app.route('/draft/<join_code>/state', methods=['GET'])
+def draft_state(join_code):
     player_id = _draft_identity_from_bearer()
-    game = draft_tools.get_game(game_id)
+    game_id = draft_tools.resolve_join_code(join_code)
+    game = draft_tools.get_game(game_id) if game_id is not None else None
     if game is None:
         return jsonify({'error': 'No such draft game'}), 404
 
@@ -307,11 +317,14 @@ def draft_state(game_id):
         'error_message': game['error_message'],
     }), 200
 
-@app.route('/draft/<int:game_id>/upload_yaml', methods=['POST'])
-def draft_upload_yaml(game_id):
+@app.route('/draft/<join_code>/upload_yaml', methods=['POST'])
+def draft_upload_yaml(join_code):
     player_id = _require_draft_identity(request.form)
     if player_id is None:
         return jsonify({'error': 'Not logged in'}), 401
+    game_id = draft_tools.resolve_join_code(join_code)
+    if game_id is None:
+        return jsonify({'error': 'No such draft game'}), 404
     if 'file' not in request.files:
         return jsonify({'error': 'No file part in the request'}), 400
     file = request.files['file']
