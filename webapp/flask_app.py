@@ -224,12 +224,14 @@ def draft_create():
     if player_id is None:
         return jsonify({'error': 'Not logged in'}), 401
     try:
+        draft_type = data.get('draft_type', 'snake')
         join_code = draft_tools.create_game(
             player_id,
-            data.get('draft_type', 'snake'),
+            draft_type,
             int(data['max_players']),
-            int(data['picks_per_player']),
             data.get('item_categories') or draft_item_pool.DEFAULT_CATEGORIES,
+            picks_per_player=int(data['picks_per_player']) if draft_type != 'grid' else None,
+            num_grids=int(data['num_grids']) if draft_type == 'grid' else None,
         )
         return jsonify({'join_code': join_code}), 200
     except (ValueError, KeyError, TypeError) as e:
@@ -274,13 +276,20 @@ def draft_pick(join_code):
     game_id = draft_tools.resolve_join_code(join_code)
     if game_id is None:
         return jsonify({'error': 'No such draft game'}), 404
-    item_name = data.get('item_name')
-    if not item_name:
-        return jsonify({'error': 'item_name is required'}), 400
+    game = draft_tools.get_game(game_id)
     try:
-        draft_tools.record_pick(game_id, player_id, item_name)
+        if game['draft_type'] == 'grid':
+            draft_tools.record_grid_pick(
+                game_id, player_id,
+                int(data['grid_number']), data.get('line_type'), int(data['line_index']),
+            )
+        else:
+            item_name = data.get('item_name')
+            if not item_name:
+                return jsonify({'error': 'item_name is required'}), 400
+            draft_tools.record_pick(game_id, player_id, item_name)
         return jsonify({'message': 'Pick recorded'}), 200
-    except ValueError as e:
+    except (ValueError, KeyError, TypeError) as e:
         return jsonify({'error': str(e)}), 400
 
 @app.route('/draft/<join_code>/state', methods=['GET'])
@@ -294,22 +303,41 @@ def draft_state(join_code):
     seats = draft_tools.get_seats(game_id)
     picks = draft_tools.get_picks(game_id)
     my_seat = next((s for s in seats if s['player_id'] == player_id), None) if player_id else None
+    is_grid = game['draft_type'] == 'grid'
 
     on_the_clock_seat = None
     if game['status'] == draft_tools.STATUS_DRAFTING and seats:
         draft_format = draft_formats.get_draft_format(game['draft_type'])
-        on_the_clock_index = draft_format.seat_on_the_clock(len(seats), game['picks_per_player'], len(picks))
+        pool_size = draft_tools.total_items(game, len(seats))
+        on_the_clock_index = draft_format.seat_on_the_clock(len(seats), picks, pool_size)
         on_the_clock_seat = seats[on_the_clock_index]['seat_number'] if on_the_clock_index is not None else None
+
+    grids = None
+    current_grid_number = None
+    if is_grid and game['status'] != draft_tools.STATUS_LOBBY:
+        cells = draft_tools.get_grid(game_id)
+        grids = [[[None] * 3 for _ in range(3)] for _ in range(game['num_grids'])]
+        for cell in cells:
+            grids[cell['grid_number']][cell['grid_row']][cell['grid_col']] = {
+                'item_name': cell['item_name'],
+                'category': cell['category'],
+                'taken': cell['taken_flag'] == 'Y',
+            }
+        untaken_grid_numbers = {cell['grid_number'] for cell in cells if cell['taken_flag'] == 'N'}
+        current_grid_number = min(untaken_grid_numbers) if untaken_grid_numbers else None
 
     return jsonify({
         'status': game['status'],
         'draft_type': game['draft_type'],
         'max_players': game['max_players'],
         'picks_per_player': game['picks_per_player'],
+        'num_grids': game['num_grids'],
         'item_categories': game['item_categories'].split(','),
         'is_host': player_id is not None and player_id == game['created_by_player_id'],
         'seats': [{'seat_number': s['seat_number'], 'discord_name': s['discord_name']} for s in seats],
-        'pool': draft_tools.get_pool(game_id) if game['status'] != draft_tools.STATUS_LOBBY else [],
+        'pool': draft_tools.get_pool(game_id) if (not is_grid and game['status'] != draft_tools.STATUS_LOBBY) else [],
+        'grids': grids,
+        'current_grid_number': current_grid_number,
         'picks': picks,
         'on_the_clock_seat': on_the_clock_seat,
         'your_turn': bool(my_seat) and on_the_clock_seat == (my_seat or {}).get('seat_number'),
