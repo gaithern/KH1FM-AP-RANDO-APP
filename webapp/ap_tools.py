@@ -1,5 +1,6 @@
 import Utils as ap_utils
 import Generate as ap_generate
+import json
 import re
 import requests
 import io
@@ -9,6 +10,7 @@ import sys
 import time
 import zipfile
 from bs4 import BeautifulSoup
+from worlds.Files import APWorldContainer
 
 from envr import AP_ROOT, AP_UPLOAD_URL, AP_DAILY_SEED_YAML_DIR, AP_DAILY_SEED_OUTPUT_DIR, AP_LOGIN, AP_DAILY_DUO_SEED_YAML_DIR, AP_DAILY_DUO_SEED_OUTPUT_DIR
 
@@ -153,6 +155,18 @@ def set_root():
 def build_kh1_apworld():
     """Zips the worlds/kh1 package into an in-memory .apworld archive."""
     world_dir = os.path.join(AP_ROOT, 'worlds', 'kh1')
+    manifest_path = os.path.join(world_dir, 'archipelago.json')
+    with open(manifest_path, 'r', encoding='utf-8') as manifest_file:
+        manifest = json.load(manifest_file)
+
+    # Container format fields (version/compatible_version) describe the .apworld zip
+    # scheme itself, not the world, so they're pulled live from Files.py rather than
+    # hand-maintained in archipelago.json. Mirrors Archipelago's own "Build APWorlds"
+    # launcher component (worlds/LauncherComponents.py: _build_apworlds).
+    apworld = APWorldContainer()
+    apworld.game = manifest['game']
+    manifest.update(apworld.get_manifest())
+
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
         for root, dirs, files in os.walk(world_dir):
@@ -162,7 +176,10 @@ def build_kh1_apworld():
                     continue
                 file_path = os.path.join(root, filename)
                 arcname = os.path.join('kh1', os.path.relpath(file_path, world_dir))
-                zip_file.write(file_path, arcname)
+                if file_path == manifest_path:
+                    zip_file.writestr(arcname, json.dumps(manifest))
+                else:
+                    zip_file.write(file_path, arcname)
     buffer.seek(0)
     return buffer
 
