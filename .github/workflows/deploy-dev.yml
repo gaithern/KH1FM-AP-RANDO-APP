@@ -36,6 +36,20 @@ jobs:
 
       - name: Reload dev web app
         run: |
-          curl -sf -X POST \
+          curl -sf -o /dev/null -X POST \
             -H "Authorization: Token ${{ secrets.PA_API_TOKEN }}" \
-            "https://www.pythonanywhere.com/api/v0/user/${{ secrets.PA_USERNAME }}/webapps/dev-${{ secrets.PA_USERNAME }}.pythonanywhere.com/reload/"
+            "https://www.pythonanywhere.com/api/v0/user/${{ secrets.PA_USERNAME }}/webapps/dev-${{ secrets.PA_USERNAME }}.pythonanywhere.com/reload/" \
+            || echo "::warning::Reload API call returned an error, but PythonAnywhere's reload endpoint is known to time out (~30s) on slow reloads while still completing the reload in the background. Verifying the site is actually back up next."
+
+      - name: Verify dev web app is back up
+        run: |
+          for i in $(seq 1 18); do
+            if curl -sf -o /dev/null "https://dev-${{ secrets.PA_USERNAME }}.pythonanywhere.com/"; then
+              echo "Site responded successfully."
+              exit 0
+            fi
+            echo "Site not responding yet (attempt $i/18), retrying in 10s..."
+            sleep 10
+          done
+          echo "::error::Dev web app did not come back up after reload."
+          exit 1
