@@ -44,7 +44,7 @@ jobs:
       - name: Verify dev web app is back up
         run: |
           for i in $(seq 1 18); do
-            if curl -sf -o /dev/null "https://dev-${{ secrets.PA_USERNAME }}.pythonanywhere.com/"; then
+            if curl -sf -o /dev/null "https://dev-${{ secrets.PA_USERNAME }}.pythonanywhere.com/kh1.apworld"; then
               echo "Site responded successfully."
               exit 0
             fi
