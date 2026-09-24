@@ -11,6 +11,7 @@ from envr import AP_UPLOAD_URL, YAMLS_ROOT, DRAFT_YAMLS_ROOT, ALLOWED_RETURN_ORI
 import mysql_tools
 import ap_tools
 import oauth_tools
+import options_tools
 import draft_formats
 import draft_item_pool
 import draft_send_tools
@@ -416,6 +417,14 @@ def kh1_apworld():
         )
     except Exception as e:
         print(f'Error in kh1_apworld: {e}')
+        return jsonify({'error': 'Something went wrong'}), 500
+
+@app.route('/kh1_options', methods=['GET'])
+def kh1_options():
+    try:
+        return jsonify(options_tools.get_kh1_options_schema()), 200
+    except Exception as e:
+        print(f'Error in kh1_options: {e}')
         return jsonify({'error': 'Something went wrong'}), 500
 
 @app.route('/oauth/login', methods=['GET'])
