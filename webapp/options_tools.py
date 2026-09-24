@@ -1,4 +1,5 @@
 import functools
+import re
 from inspect import cleandoc
 
 import Options
@@ -7,7 +8,7 @@ from worlds.AutoWorld import AutoWorldRegister
 KH1_GAME_NAME = 'Kingdom Hearts'
 
 def _slugify(name):
-    return ''.join(c if c.isalnum() else '-' for c in name.lower()).strip('-')
+    return re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
 
 def _describe_option(key, option):
     """Serializes one option class into the shape generate_a_seed.html renders.
