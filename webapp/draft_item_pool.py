@@ -1,14 +1,18 @@
-"""Draftable KH1 item pool, sourced from worlds/kh1/Items.py's item_table.
+"""Draftable KH1 item pool, sourced from the host's generated seed.
 
-Draft games choose which categories to draft from at creation time, so
-new categories in item_table are available without code changes here.
-Keyblades and Accessory are the recommended default: pure equipment
-upgrades, none of them gate world progression (unlike the Key/Torn Pages/
-Worlds categories, which must not be draftable away from a player who
-needs them), and none are filler consumables (the Item category).
+The host uploads their YAML before the draft starts; the seed is generated
+up front and every item it contains (in the game's chosen categories)
+becomes a draft candidate. The host then chooses which candidates go into
+the draft. Drafting an item doesn't remove it from the seed - the drafter
+just gets an extra copy sent at the start, so they have it early and will
+usually still find the seed's own copy later.
+
+Categories still come from worlds/kh1/Items.py's item_table, so new
+categories are available without code changes here.
 """
 
 import random
+from collections import Counter
 
 DEFAULT_CATEGORIES = ["Keyblades", "Accessory"]
 
@@ -26,27 +30,34 @@ def available_categories() -> list[str]:
     return sorted(categories - EXCLUDED_CATEGORIES)
 
 
-def build_pool(item_categories: list[str], count: int) -> list[tuple[str, str]]:
-    """Returns exactly `count` (item_name, category) pairs drawn from the
-    given categories - no extras sitting around unpicked. Sampled without
-    replacement as long as there are enough unique items; once those run
-    out, fills the remainder with random duplicates rather than raising, so
-    a small category selection can still support a big draft. Category is
-    included alongside each name so the frontend can show a representative
-    icon per item without needing the full item table."""
-    from worlds.kh1.Items import item_table
+def validate_categories(item_categories: list[str]) -> None:
     unknown = set(item_categories) - set(available_categories())
     if unknown:
         raise ValueError(f"Unknown item categories: {sorted(unknown)}")
-    candidates = [name for name, data in item_table.items() if data.category in item_categories]
-    if not candidates:
-        raise ValueError("Selected item categories have no draftable items")
 
-    if count <= len(candidates):
-        names = random.sample(candidates, count)
-    else:
-        names = list(candidates)
-        names.extend(random.choices(candidates, k=count - len(candidates)))
-        random.shuffle(names)
 
-    return [(name, item_table[name].category) for name in names]
+def seed_candidates(multiworld, item_categories: list[str]) -> list[tuple[str, str, int]]:
+    """(item_name, category, quantity) for every item placed in player 1's
+    seed whose category is one of item_categories. Reads placed location
+    items rather than multiworld.itempool so items the world locks directly
+    onto locations (never passing through itempool) are included too.
+    Starting inventory isn't a location item, so it's naturally left out -
+    the player already has it."""
+    from worlds.kh1.Items import item_table
+    counts = Counter(
+        location.item.name
+        for location in multiworld.get_locations(1)
+        if location.item is not None and location.item.player == 1 and location.item.code is not None
+        and location.item.name in item_table and item_table[location.item.name].category in item_categories
+    )
+    return sorted((name, item_table[name].category, quantity) for name, quantity in counts.items())
+
+
+def build_pool(selected: list[tuple[str, str]], count: int) -> list[tuple[str, str]]:
+    """Returns exactly `count` (item_name, category) pairs sampled without
+    replacement from the host's selection. The host must select at least
+    `count` items - selecting more lets chance decide which of them make it
+    into the draft."""
+    if len(selected) < count:
+        raise ValueError(f"Select at least {count} items for this draft (selected {len(selected)})")
+    return random.sample(selected, count)

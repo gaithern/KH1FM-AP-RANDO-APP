@@ -44,11 +44,13 @@ never overwrites or deletes them.
 
 ## KH1 item draft feature
 
-Lets a host create a draft game, seat other Discord-logged-in players, run a
-snake draft over a configurable KH1 item pool (`draft_item_pool.py`,
-categories sourced from `worlds/kh1/Items.py`), then upload one YAML to
-generate a single seed. Each seated player gets their own room of that same
-seed (same per-player-room pattern as Daily Seed —
+Lets a host create a draft game, seat other Discord-logged-in players, and
+upload one YAML to generate a single seed up front. Every item in that seed
+(within the game's chosen categories, sourced from `worlds/kh1/Items.py`)
+becomes a draft candidate; the host picks which candidates go in the pool
+(`draft_item_pool.py`), then the players snake/grid draft it. Drafted items
+stay in the seed for everyone - the drafter just gets an extra copy early.
+Each seated player gets their own room of that same seed (same per-player-room pattern as Daily Seed —
 `mysql_tools.get_players_daily_seed`), and the backend connects to each room
 as admin (`draft_send_tools.py`, via `CommonClient.py`'s `CommonContext`
 directly rather than shelling out to a subprocess) to deliver that player's

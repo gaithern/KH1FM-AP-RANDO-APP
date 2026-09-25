@@ -263,9 +263,11 @@ def draft_start(join_code):
     if game_id is None:
         return jsonify({'error': 'No such draft game'}), 404
     try:
-        draft_tools.start_game(game_id, player_id)
+        # Optional list of item names (from /state's `candidates`) the host
+        # wants in the draft; omitted means every candidate.
+        draft_tools.start_game(game_id, player_id, data.get('items'))
         return jsonify({'message': 'Draft started'}), 200
-    except ValueError as e:
+    except (ValueError, TypeError) as e:
         return jsonify({'error': str(e)}), 400
 
 @app.route('/draft/<join_code>/pick', methods=['POST'])
@@ -289,9 +291,13 @@ def draft_pick(join_code):
             if not item_name:
                 return jsonify({'error': 'item_name is required'}), 400
             draft_tools.record_pick(game_id, player_id, item_name)
-        return jsonify({'message': 'Pick recorded'}), 200
     except (ValueError, KeyError, TypeError) as e:
         return jsonify({'error': str(e)}), 400
+    # The seed was generated before the draft, so the pick that finishes
+    # the draft kicks off room creation and item delivery straight away.
+    if draft_tools.get_game(game_id)['status'] == draft_tools.STATUS_SENDING_ITEMS:
+        threading.Thread(target=_run_draft_deliver, args=(game_id,), daemon=True).start()
+    return jsonify({'message': 'Pick recorded'}), 200
 
 @app.route('/draft/<join_code>/state', methods=['GET'])
 def draft_state(join_code):
@@ -305,6 +311,8 @@ def draft_state(join_code):
     picks = draft_tools.get_picks(game_id)
     my_seat = next((s for s in seats if s['player_id'] == player_id), None) if player_id else None
     is_grid = game['draft_type'] == 'grid'
+    pool_built = game['status'] not in (draft_tools.STATUS_LOBBY, draft_tools.STATUS_GENERATING,
+                                        draft_tools.STATUS_POOL_SELECTION)
 
     on_the_clock_seat = None
     if game['status'] == draft_tools.STATUS_DRAFTING and seats:
@@ -315,7 +323,7 @@ def draft_state(join_code):
 
     grids = None
     current_grid_number = None
-    if is_grid and game['status'] != draft_tools.STATUS_LOBBY:
+    if is_grid and pool_built:
         cells = draft_tools.get_grid(game_id)
         grids = [[[None] * 3 for _ in range(3)] for _ in range(game['num_grids'])]
         for cell in cells:
@@ -336,7 +344,12 @@ def draft_state(join_code):
         'item_categories': game['item_categories'].split(','),
         'is_host': player_id is not None and player_id == game['created_by_player_id'],
         'seats': [{'seat_number': s['seat_number'], 'discord_name': s['discord_name']} for s in seats],
-        'pool': draft_tools.get_pool(game_id) if (not is_grid and game['status'] != draft_tools.STATUS_LOBBY) else [],
+        # Every item in the host's generated seed that the host can choose
+        # to put in the draft (with how many copies the seed has), plus how
+        # many they need to select - snake's count grows as players join.
+        'candidates': draft_tools.get_candidates(game_id),
+        'required_pool_size': draft_tools.total_items(game, len(seats)),
+        'pool': draft_tools.get_pool(game_id) if (not is_grid and pool_built) else [],
         'grids': grids,
         'current_grid_number': current_grid_number,
         'picks': picks,
@@ -370,14 +383,14 @@ def draft_upload_yaml(join_code):
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
 
-    threading.Thread(target=_run_draft_finalize, args=(game_id, game_folder), daemon=True).start()
+    threading.Thread(target=_run_draft_generate, args=(game_id, game_folder), daemon=True).start()
     return jsonify({'message': 'Generating seed...'}), 200
 
-def _run_draft_finalize(game_id, game_folder):
-    """Runs off the request thread: generates the seed once, then creates
-    one room per seat and delivers that seat's own drafted items into it.
-    Any failure is recorded on the game so the frontend can surface it
-    instead of polling forever."""
+def _run_draft_generate(game_id, game_folder):
+    """Runs off the request thread: generates and uploads the seed before
+    the draft, and records which of its items the host can draft. A
+    failure puts the game back in the lobby with error_message set so the
+    host can upload a fixed YAML."""
     try:
         server_password = secrets.token_urlsafe(16)
         file_path, multiworld = ap_tools.generate(game_folder, server_password=server_password)
@@ -386,11 +399,23 @@ def _run_draft_finalize(game_id, game_folder):
         # real slot name has to come from the generated multiworld, not a
         # text-parse of the uploaded YAML.
         slot_name = multiworld.get_player_name(1)
+        game = draft_tools.get_game(game_id)
+        candidates = draft_item_pool.seed_candidates(multiworld, game['item_categories'].split(','))
         seed_link = ap_tools.get_seed_link(file_path)
         ap_tools.remove_output(file_path)
-        draft_tools.set_generation_result(game_id, server_password, seed_link, slot_name)
+        draft_tools.set_generation_result(game_id, server_password, seed_link, slot_name, candidates)
+    except Exception as e:
+        print(f'Error generating draft game {game_id}: {e}')
+        draft_tools.set_generation_failed(game_id, str(e))
 
+def _run_draft_deliver(game_id):
+    """Runs off the request thread once the draft is complete: creates one
+    room per seat from the pre-generated seed and delivers that seat's own
+    drafted items into it. Any failure is recorded on the game so the
+    frontend can surface it instead of polling forever."""
+    try:
         game = draft_tools.get_game(game_id)
+        server_password, seed_link = game['server_password'], game['seed_link']
         for seat in draft_tools.get_seats(game_id):
             room_link = ap_tools.new_room_link(seed_link)
             draft_tools.set_seat_room_link(game_id, seat['seat_number'], room_link)
@@ -402,7 +427,7 @@ def _run_draft_finalize(game_id, game_folder):
                 connect_address, game['slot_name'], server_password, item_names))
             draft_tools.set_seat_items_sent(game_id, seat['seat_number'])
     except Exception as e:
-        print(f'Error finalizing draft game {game_id}: {e}')
+        print(f'Error delivering items for draft game {game_id}: {e}')
         draft_tools.set_error(game_id, str(e))
 
 @app.route('/kh1.apworld', methods=['GET'])

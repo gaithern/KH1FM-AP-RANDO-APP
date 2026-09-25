@@ -12,6 +12,12 @@
 --   ALTER TABLE draft_pool ADD COLUMN grid_col INT NULL;
 --   ALTER TABLE draft_picks ADD COLUMN turn_number INT NOT NULL DEFAULT 0;
 --   UPDATE draft_picks SET turn_number = pick_number WHERE turn_number = 0;
+--
+-- Migration for seed-first pool selection (host uploads the YAML before the
+-- draft and picks the pool from that seed's items): create draft_candidates
+-- below. Old games left in the retired 'awaiting_yaml' status can't finish -
+--   UPDATE draft_games SET status = 'error', error_message = 'Retired draft flow'
+--     WHERE status = 'awaiting_yaml';
 
 CREATE TABLE draft_games (
     game_id               INT AUTO_INCREMENT PRIMARY KEY,
@@ -49,9 +55,8 @@ CREATE TABLE draft_seats (
     FOREIGN KEY (player_id) REFERENCES players(player_id)
 );
 
--- item_name is NOT unique per game_id - build_pool() fills out small
--- category selections with duplicate items rather than leaving the draft
--- short, so pool_id is the row identity, not (game_id, item_name).
+-- pool_id is the row identity, not (game_id, item_name) - older games'
+-- pools were padded out with duplicate item names.
 CREATE TABLE draft_pool (
     pool_id     INT AUTO_INCREMENT PRIMARY KEY,
     game_id     INT NOT NULL,
@@ -79,5 +84,18 @@ CREATE TABLE draft_picks (
     turn_number  INT NOT NULL,
     picked_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (game_id, pick_number),
+    FOREIGN KEY (game_id) REFERENCES draft_games(game_id)
+);
+
+-- Every item in the host's generated seed (within the game's
+-- item_categories) that the host may put into the draft pool. quantity is
+-- how many copies the seed contains - informational only, drafting an item
+-- sends the drafter an extra copy rather than taking one out of the seed.
+CREATE TABLE draft_candidates (
+    game_id    INT NOT NULL,
+    item_name  VARCHAR(255) NOT NULL,
+    category   VARCHAR(64) NOT NULL,
+    quantity   INT NOT NULL,
+    PRIMARY KEY (game_id, item_name),
     FOREIGN KEY (game_id) REFERENCES draft_games(game_id)
 );

@@ -9,17 +9,21 @@ import secrets
 
 import mysql_tools
 from draft_formats import get_draft_format
-from draft_item_pool import build_pool
+from draft_item_pool import build_pool, validate_categories
 
 # No 0/O/1/I/L - avoids characters that look alike when a player types a
 # code someone else read out loud or shared as a screenshot.
 JOIN_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 JOIN_CODE_LENGTH = 8
 
+# lobby -> generating (host uploaded a YAML) -> pool_selection (seed is
+# ready, host picks which of its items go in the draft) -> drafting ->
+# sending_items -> complete. A failed generation drops back to lobby with
+# error_message set so the host can fix their YAML and upload again.
 STATUS_LOBBY = "lobby"
-STATUS_DRAFTING = "drafting"
-STATUS_AWAITING_YAML = "awaiting_yaml"
 STATUS_GENERATING = "generating"
+STATUS_POOL_SELECTION = "pool_selection"
+STATUS_DRAFTING = "drafting"
 STATUS_SENDING_ITEMS = "sending_items"
 STATUS_COMPLETE = "complete"
 STATUS_ERROR = "error"
@@ -69,6 +73,7 @@ def resolve_join_code(join_code: str) -> int | None:
 def create_game(created_by_player_id: int, draft_type: str, max_players: int, item_categories: list[str],
                 picks_per_player: int | None = None, num_grids: int | None = None) -> str:
     get_draft_format(draft_type)  # raises ValueError if unknown
+    validate_categories(item_categories)
     if draft_type == "grid":
         if max_players != 2:
             raise ValueError("Grid draft only supports 2 players")
@@ -138,7 +143,7 @@ def join_game(game_id: int, player_id: int) -> int:
     game = get_game(game_id)
     if game is None:
         raise ValueError("No such draft game")
-    if game["status"] != STATUS_LOBBY:
+    if game["status"] not in (STATUS_LOBBY, STATUS_GENERATING, STATUS_POOL_SELECTION):
         raise ValueError("This draft game has already started")
     seats = get_seats(game_id)
     if any(seat["player_id"] == player_id for seat in seats):
@@ -155,21 +160,45 @@ def join_game(game_id: int, player_id: int) -> int:
     return seat_number
 
 
-def start_game(game_id: int, caller_player_id: int) -> None:
+def get_candidates(game_id: int) -> list[dict]:
+    conn = mysql_tools.get_connection()
+    rows = mysql_tools.execute(
+        conn,
+        "SELECT item_name, category, quantity FROM draft_candidates WHERE game_id = %s ORDER BY category, item_name",
+        args=(game_id,), fetch_results=True,
+    )
+    mysql_tools.close_connection(conn)
+    return rows
+
+
+def start_game(game_id: int, caller_player_id: int, selected_item_names: list[str] | None = None) -> None:
+    """selected_item_names is the host's pick of which seed items go into
+    the draft; None means every candidate. Each name counts once however
+    many copies the seed has."""
     game = get_game(game_id)
     if game is None:
         raise ValueError("No such draft game")
     if game["created_by_player_id"] != caller_player_id:
         raise ValueError("Only the host can start the draft")
-    if game["status"] != STATUS_LOBBY:
+    if game["status"] in (STATUS_LOBBY, STATUS_GENERATING):
+        raise ValueError("Upload a YAML and wait for the seed to generate before starting")
+    if game["status"] != STATUS_POOL_SELECTION:
         raise ValueError("This draft game has already started")
     seats = get_seats(game_id)
     if len(seats) < 2:
         raise ValueError("Need at least 2 players to start")
 
+    categories_by_name = {c["item_name"]: c["category"] for c in get_candidates(game_id)}
+    if selected_item_names is None:
+        selected_item_names = list(categories_by_name)
+    unknown = set(selected_item_names) - set(categories_by_name)
+    if unknown:
+        raise ValueError(f"Not in this seed's draftable items: {sorted(unknown)}")
+    selected = [(name, categories_by_name[name]) for name in dict.fromkeys(selected_item_names)]
+    pool_items = build_pool(selected, total_items(game, len(seats)))
+
     conn = mysql_tools.get_connection()
     if game["draft_type"] == "grid":
-        pool_items = build_pool(game["item_categories"].split(","), game["num_grids"] * GRID_SIZE * GRID_SIZE)
         item_iter = iter(pool_items)
         for grid_number in range(game["num_grids"]):
             for row in range(GRID_SIZE):
@@ -182,7 +211,6 @@ def start_game(game_id: int, caller_player_id: int) -> None:
                         args=(game_id, item_name, category, grid_number, row, col),
                     )
     else:
-        pool_items = build_pool(game["item_categories"].split(","), len(seats) * game["picks_per_player"])
         for item_name, category in pool_items:
             mysql_tools.execute(conn, "INSERT INTO draft_pool (game_id, item_name, category) VALUES (%s, %s, %s)",
                                  args=(game_id, item_name, category))
@@ -247,7 +275,7 @@ def _seat_on_the_clock_or_raise(game: dict, seats: list[dict], picks: list[dict]
 def _finish_draft_if_complete(conn, game_id: int, picks_now: int, pool_size: int) -> None:
     if picks_now >= pool_size:
         mysql_tools.execute(conn, "UPDATE draft_games SET status = %s WHERE game_id = %s",
-                             args=(STATUS_AWAITING_YAML, game_id))
+                             args=(STATUS_SENDING_ITEMS, game_id))
 
 
 def record_pick(game_id: int, caller_player_id: int, item_name: str) -> None:
@@ -268,9 +296,8 @@ def record_pick(game_id: int, caller_player_id: int, item_name: str) -> None:
 
     conn = mysql_tools.get_connection()
     # Claim one specific untaken row by pool_id, not by item_name - the pool
-    # can contain duplicate item names (build_pool fills out small
-    # categories with repeats), so updating by item_name alone would mark
-    # every copy of that item taken instead of just this one.
+    # has held duplicate item names in the past, so updating by item_name
+    # alone could mark every copy of that item taken instead of just this one.
     available_rows = mysql_tools.execute(
         conn, "SELECT pool_id FROM draft_pool WHERE game_id = %s AND item_name = %s AND taken_flag = 'N' LIMIT 1",
         args=(game_id, item_name), fetch_results=True,
@@ -356,33 +383,51 @@ def set_error(game_id: int, message: str) -> None:
     mysql_tools.close_connection(conn)
 
 
-def start_generation(game_id: int, caller_player_id: int, seed_zip_path: str) -> None:
+def start_generation(game_id: int, caller_player_id: int, yaml_path: str) -> None:
+    """Allowed again from pool_selection so the host can re-roll with a
+    different YAML before the draft starts - the old candidates are
+    dropped along with the old seed."""
     game = get_game(game_id)
     if game is None:
         raise ValueError("No such draft game")
     if game["created_by_player_id"] != caller_player_id:
         raise ValueError("Only the host can upload settings for this draft game")
-    if game["status"] != STATUS_AWAITING_YAML:
-        raise ValueError("This draft game is not awaiting settings")
+    if game["status"] not in (STATUS_LOBBY, STATUS_POOL_SELECTION):
+        raise ValueError("Settings can only be uploaded before the draft starts")
     conn = mysql_tools.get_connection()
+    mysql_tools.execute(conn, "DELETE FROM draft_candidates WHERE game_id = %s", args=(game_id,))
     mysql_tools.execute(
         conn,
-        "UPDATE draft_games SET status = %s, seed_zip_path = %s WHERE game_id = %s",
-        args=(STATUS_GENERATING, seed_zip_path, game_id),
+        """UPDATE draft_games SET status = %s, seed_zip_path = %s, error_message = NULL,
+           server_password = NULL, seed_link = NULL, slot_name = NULL WHERE game_id = %s""",
+        args=(STATUS_GENERATING, yaml_path, game_id),
     )
     mysql_tools.close_connection(conn)
 
 
-def set_generation_result(game_id: int, server_password: str, seed_link: str, slot_name: str) -> None:
+def set_generation_result(game_id: int, server_password: str, seed_link: str, slot_name: str,
+                          candidates: list[tuple[str, str, int]]) -> None:
     # slot_name is the resolved name from the generated multiworld, not a
-    # text-parse of the uploaded YAML - see _run_draft_finalize in
+    # text-parse of the uploaded YAML - see _run_draft_generate in
     # flask_app.py for why (template placeholders like "Player{number}").
     conn = mysql_tools.get_connection()
+    for item_name, category, quantity in candidates:
+        mysql_tools.execute(
+            conn, "INSERT INTO draft_candidates (game_id, item_name, category, quantity) VALUES (%s, %s, %s, %s)",
+            args=(game_id, item_name, category, quantity),
+        )
     mysql_tools.execute(
         conn,
         "UPDATE draft_games SET status = %s, server_password = %s, seed_link = %s, slot_name = %s WHERE game_id = %s",
-        args=(STATUS_SENDING_ITEMS, server_password, seed_link, slot_name, game_id),
+        args=(STATUS_POOL_SELECTION, server_password, seed_link, slot_name, game_id),
     )
+    mysql_tools.close_connection(conn)
+
+
+def set_generation_failed(game_id: int, message: str) -> None:
+    conn = mysql_tools.get_connection()
+    mysql_tools.execute(conn, "UPDATE draft_games SET status = %s, error_message = %s WHERE game_id = %s",
+                         args=(STATUS_LOBBY, message, game_id))
     mysql_tools.close_connection(conn)
 
 
