@@ -230,7 +230,7 @@ def draft_create():
             player_id,
             draft_type,
             int(data['max_players']),
-            data.get('item_categories') or draft_item_pool.DEFAULT_CATEGORIES,
+            data.get('item_categories') or draft_item_pool.available_categories(),
             picks_per_player=int(data['picks_per_player']) if draft_type != 'grid' else None,
             num_grids=int(data['num_grids']) if draft_type == 'grid' else None,
         )
