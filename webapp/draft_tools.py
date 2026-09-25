@@ -6,6 +6,7 @@ than duplicating them.
 """
 
 import secrets
+from collections import Counter
 
 import mysql_tools
 from draft_formats import get_draft_format
@@ -173,8 +174,8 @@ def get_candidates(game_id: int) -> list[dict]:
 
 def start_game(game_id: int, caller_player_id: int, selected_item_names: list[str] | None = None) -> None:
     """selected_item_names is the host's pick of which seed items go into
-    the draft; None means every candidate. Each name counts once however
-    many copies the seed has."""
+    the draft; None means one copy of every candidate. A name repeated N
+    times puts N copies in, up to the number the seed actually has."""
     game = get_game(game_id)
     if game is None:
         raise ValueError("No such draft game")
@@ -188,13 +189,18 @@ def start_game(game_id: int, caller_player_id: int, selected_item_names: list[st
     if len(seats) < 2:
         raise ValueError("Need at least 2 players to start")
 
-    categories_by_name = {c["item_name"]: c["category"] for c in get_candidates(game_id)}
+    candidates = {c["item_name"]: c for c in get_candidates(game_id)}
     if selected_item_names is None:
-        selected_item_names = list(categories_by_name)
-    unknown = set(selected_item_names) - set(categories_by_name)
+        selected_item_names = list(candidates)
+    copies_by_name = Counter(selected_item_names)
+    unknown = set(copies_by_name) - set(candidates)
     if unknown:
         raise ValueError(f"Not in this seed's draftable items: {sorted(unknown)}")
-    selected = [(name, categories_by_name[name]) for name in dict.fromkeys(selected_item_names)]
+    too_many = sorted(name for name, copies in copies_by_name.items() if copies > candidates[name]["quantity"])
+    if too_many:
+        raise ValueError(f"More copies selected than the seed has: {too_many}")
+    selected = [(name, candidates[name]["category"])
+                for name, copies in copies_by_name.items() for _ in range(copies)]
     pool_items = build_pool(selected, total_items(game, len(seats)))
 
     conn = mysql_tools.get_connection()
