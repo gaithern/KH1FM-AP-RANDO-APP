@@ -39,6 +39,10 @@ def _describe_option(key, option):
                 {'value': value, 'text': name}
                 for name, value in option.special_range_names.items()
             ]
+    elif issubclass(option, Options.OptionSet) and option.valid_keys:
+        setting['type'] = 'set'
+        setting['options'] = list(option.valid_keys)
+        setting['default'] = sorted(option.default)
     else:
         return None
     return setting
