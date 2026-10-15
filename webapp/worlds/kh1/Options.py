@@ -1,109 +1,67 @@
 from dataclasses import dataclass
 
-from Options import NamedRange, Choice, Range, Toggle, DefaultOnToggle, PerGameCommonOptions, StartInventoryPool, OptionGroup
+from Options import NamedRange, Choice, Range, Toggle, DefaultOnToggle, OptionSet, OptionGroup
+from Options import PerGameCommonOptions, StartInventoryPool
 
-class StrengthIncrease(Range):
+class LevelStats(Choice):
     """
-    Determines the number of Strength Increases to add to the multiworld.
-    
-    The randomizer will add all stat ups defined here into a pool and choose up to 99 to add to the multiworld.
-    
-    Accessory Slot Increases and Item Slot Increases are prioritized first, then the remaining items (up to 99 total) are chosen at random.
+    Determines the stat increase Sora gets on each level up.
+
+    Vanilla: Each level gives its vanilla stat increase.
+
+    Shuffle: The vanilla stat increases are shuffled across levels.
     """
-    display_name = "STR Increases"
+    display_name = "LV Stats"
+    option_vanilla = 0
+    option_shuffle = 1
+    default = 0
+
+class LevelCheckLocations(Choice):
+    """
+    Determines which levels can have additional checks.
+
+    LV 50: 33 additional checks spread randomly across levels 2-50.
+
+    LV 99: 33 additional checks spread randomly across levels 2-99.
+
+    LV 1: No additional level checks.
+    """
+    display_name = "LV Check Locations"
+    option_level_50 = 0
+    option_level_99 = 1
+    option_level_1 = 2
+    default = 0
+
+class LevelCheckItems(Choice):
+    """
+    Determines what can be found on additional level checks.
+
+    Stats and Abilities: Sora's abilities, Item Slot Increases, and Accessory Slot Increases.
+
+    Anything: Any item.
+    """
+    display_name = "LV Check Items"
+    option_stats_and_abilities = 0
+    option_anything = 1
+    default = 0
+
+class AdditionalItemSlots(Range):
+    """
+    Determines the number of additional Item Slot Increases added to the multiworld.
+    """
+    display_name = "Additional Item Slots"
     range_start = 0
-    range_end = 100
-    default = 24
+    range_end = 5
+    default = 1
 
-class DefenseIncrease(Range):
+class AdditionalAccessorySlots(Range):
     """
-    Determines the number of Defense Increases to add to the multiworld.
-    
-    The randomizer will add all stat ups defined here into a pool and choose up to 99 to add to the multiworld.
-    
-    Accessory Slot Increases and Item Slot Increases are prioritized first, then the remaining items (up to 99 total) are chosen at random.
+    Determines the number of additional Accessory Slot Increases added to the multiworld.
     """
-    display_name = "DEF Increases"
-    range_start = 0
-    range_end = 100
-    default = 24
-
-class HPIncrease(Range):
-    """
-    Determines the number of HP Increases to add to the multiworld.
-    
-    The randomizer will add all stat ups defined here into a pool and choose up to 99 to add to the multiworld.
-    
-    Accessory Slot Increases and Item Slot Increases are prioritized first, then the remaining items (up to 99 total) are chosen at random.
-    """
-    display_name = "HP Increases"
-    range_start = 0
-    range_end = 100
-    default = 23
-
-class APIncrease(Range):
-    """
-    Determines the number of AP Increases to add to the multiworld.
-    
-    The randomizer will add all stat ups defined here into a pool and choose up to 99 to add to the multiworld.
-    
-    Accessory Slot Increases and Item Slot Increases are prioritized first, then the remaining items (up to 99 total) are chosen at random.
-    """
-    display_name = "AP Increases"
-    range_start = 0
-    range_end = 100
-    default = 18
-
-class MPIncrease(Range):
-    """
-    Determines the number of MP Increases to add to the multiworld.
-    
-    The randomizer will add all stat ups defined here into a pool and choose up to 99 to add to the multiworld.
-    
-    Accessory Slot Increases and Item Slot Increases are prioritized first, then the remaining items (up to 99 total) are chosen at random.
-    """
-    display_name = "MP Increases"
-    range_start = 0
-    range_end = 20
-    default = 7
-
-class AccessorySlotIncrease(Range):
-    """
-    Determines the number of Accessory Slot Increases to add to the multiworld.
-    
-    The randomizer will add all stat ups defined here into a pool and choose up to 99 to add to the multiworld.
-    
-    Accessory Slot Increases and Item Slot Increases are prioritized first, then the remaining items (up to 99 total) are chosen at random.
-    """
-    display_name = "Accessory Slot Increases"
+    display_name = "Additional Accessory Slots"
     range_start = 0
     range_end = 6
     default = 1
-
-class ItemSlotIncrease(Range):
-    """
-    Determines the number of Item Slot Increases to add to the multiworld.
-    
-    The randomizer will add all stat ups defined here into a pool and choose up to 99 to add to the multiworld.
-    
-    Accessory Slot Increases and Item Slot Increases are prioritized first, then the remaining items (up to 99 total) are chosen at random.
-    """
-    display_name = "Item Slot Increases"
-    range_start = 0
-    range_end = 5
-    default = 3
-
-class Atlantica(Toggle):
-    """
-    Toggle whether to include checks in Atlantica.
-    """
-    display_name = "Atlantica"
-
-class HundredAcreWood(Toggle):
-    """
-    Toggle whether to include checks in the 100 Acre Wood.
-    """
-    display_name = "100 Acre Wood"
 
 class SkipHundredAcreWoodMinigames(Toggle):
     """
@@ -111,37 +69,42 @@ class SkipHundredAcreWoodMinigames(Toggle):
     """
     display_name = "Skip 100 Acre Wood Minigames"
 
-class SuperBosses(Toggle):
+class CupsStandard(Choice):
     """
-    Toggle whether to include checks behind Super Bosses.
-    """
-    display_name = "Super Bosses"
+    Determines how the Olympus Coliseum cups play.
 
-class Cups(Choice):
-    """
-    Determines which cups have their locations added to the multiworld.
-    
-    Please note that the cup items will still appear in the multiworld even if set to off, as they are required to challenge Sephiroth.
+    Normal: The cups play as in vanilla.
 
-    Off: All cup locations are removed
-    
-    Cups: Phil, Pegasus, and Hercules cups are included
-    
-    Hades Cup: Hades Cup is included in addition to Phil, Pegasus, and Hercules cups. If Super Bosses are enabled, then Ice Titan is included
+    Bosses Only: Each cup is shortened to its boss matches.
+
+    No Fights: Entering a cup clears it immediately and gives its rewards.
     """
-    display_name = "Cups"
-    option_off = 0
-    option_cups = 1
-    option_hades_cup = 2
+    display_name = "Cups Standard"
+    option_normal = 0
+    option_bosses_only = 1
+    option_no_fights = 2
+    default = 0
+
+class CupsSoloTimeTrial(Choice):
+    """
+    Determines how the Solo and Time Trial versions of the cups play.
+
+    Same As Standard: Solo and Time Trial follow the Cups Standard setting.
+
+    Auto Clear: Clearing a cup normally also clears it Solo and Time Trial and gives those rewards.
+    """
+    display_name = "Cups Solo and Time Trial"
+    option_same_as_standard = 0
+    option_auto_clear = 1
     default = 0
 
 class FinalRestDoorKey(Choice):
     """
     Determines what grants the player the Final Rest Door Key.
     
-    Sephiroth: Defeat Sephiroth
+    Sephiroth: Defeat Sephiroth in Olympus Coliseum
     
-    Unknown: Defeat Unknown
+    Unknown: Defeat the Enigmatic Man in Hollow Bastion
     
     Postcards: Turn in an amount of postcards in Traverse Town
     
@@ -237,7 +200,7 @@ class RequiredLuckyEmblemsEotW(Range):
     """
     If End of the World Unlock is set to "Lucky Emblems", determines the number of Lucky Emblems required.
     """
-    display_name = "Lucky Emblems to Open End of the World"
+    display_name = "End of the World Emblems"
     default = 7
     range_start = 0
     range_end = 20
@@ -246,7 +209,7 @@ class RequiredLuckyEmblemsDoor(Range):
     """
     If Final Rest Door Key is set to "Lucky Emblems", determines the number of Lucky Emblems required.
     """
-    display_name = "Lucky Emblems to Open Final Rest Door"
+    display_name = "Final Rest Door Emblems"
     default = 10
     range_start = 0
     range_end = 20
@@ -279,7 +242,7 @@ class KeybladeMinStrength(Range):
     """
     Determines the minimum STR bonus a keyblade can have.
     """
-    display_name = "Keyblade Minimum STR Bonus"
+    display_name = "Keyblade Min STR Bonus"
     default = 3
     range_start = 0
     range_end = 20
@@ -288,7 +251,7 @@ class KeybladeMaxStrength(Range):
     """
     Determines the maximum STR bonus a keyblade can have.
     """
-    display_name = "Keyblade Maximum STR Bonus"
+    display_name = "Keyblade Max STR Bonus"
     default = 14
     range_start = 0
     range_end = 20
@@ -297,7 +260,7 @@ class KeybladeMinCritRateBonus(Range):
     """
     Determines the minimum Crit Rate bonus a keyblade can have.
     """
-    display_name = "Keyblade Minimum Crit Rate Bonus"
+    display_name = "Keyblade Min Crit Rate Bonus"
     default = 0
     range_start = 0
     range_end = 200
@@ -306,7 +269,7 @@ class KeybladeMaxCritRateBonus(Range):
     """
     Determines the maximum Crit Rate bonus a keyblade can have.
     """
-    display_name = "Keyblade Maximum Crit Rate Bonus"
+    display_name = "Keyblade Max Crit Rate Bonus"
     default = 200
     range_start = 0
     range_end = 200
@@ -315,7 +278,7 @@ class KeybladeMinCritSTRBonus(Range):
     """
     Determines the minimum Crit STR bonus a keyblade can have.
     """
-    display_name = "Keyblade Minimum Crit STR Bonus"
+    display_name = "Keyblade Min Crit STR Bonus"
     default = 0
     range_start = 0
     range_end = 16
@@ -324,7 +287,7 @@ class KeybladeMaxCritSTRBonus(Range):
     """
     Determines the maximum Crit STR bonus a keyblade can have.
     """
-    display_name = "Keyblade Maximum Crit STR Bonus"
+    display_name = "Keyblade Max Crit STR Bonus"
     default = 16
     range_start = 0
     range_end = 16
@@ -333,7 +296,7 @@ class KeybladeMinRecoil(Range):
     """
     Determines the minimum recoil a keyblade can have.
     """
-    display_name = "Keyblade Minimum Recoil"
+    display_name = "Keyblade Min Recoil"
     default = 1
     range_start = 1
     range_end = 90
@@ -342,7 +305,7 @@ class KeybladeMaxRecoil(Range):
     """
     Determines the maximum recoil a keyblade can have.
     """
-    display_name = "Keyblade Maximum Recoil"
+    display_name = "Keyblade Max Recoil"
     default = 90
     range_start = 1
     range_end = 90
@@ -351,7 +314,7 @@ class KeybladeMinMP(Range):
     """
     Determines the minimum MP bonus a keyblade can have.
     """
-    display_name = "Keyblade Minimum MP Bonus"
+    display_name = "Keyblade Min MP Bonus"
     default = -2
     range_start = -2
     range_end = 5
@@ -360,35 +323,10 @@ class KeybladeMaxMP(Range):
     """
     Determines the maximum MP bonus a keyblade can have.
     """
-    display_name = "Keyblade Maximum MP Bonus"
+    display_name = "Keyblade Max MP Bonus"
     default = 3
     range_start = -2
     range_end = 5
-
-class LevelChecks(Range):
-    """
-    Determines the maximum level for which checks can be obtained.
-    """
-    display_name = "Level Checks"
-    default = 99
-    range_start = 0
-    range_end = 99
-
-class ForceStatsOnLevels(NamedRange):
-    """
-    If this value is less than the value for Level Checks, this determines the minimum level from which only stat ups are obtained at level up locations.
-    
-    For example, if you want to be able to find any multiworld item from levels 2-50, then just stat ups for levels 51-100, set this value to 51.
-    """
-    display_name = "Force Stats on Level Starting From"
-    default = 2
-    range_start = 2
-    range_end = 101
-    special_range_names = {
-        "none": 101,
-        "multiworld-to-level-50": 51,
-        "all": 2
-    }
 
 class BadKingdomKey(Toggle):
     """
@@ -396,26 +334,15 @@ class BadKingdomKey(Toggle):
     """
     display_name = "Bad Kingdom Key"
 
-class DeathLink(Choice):
-    """
-    If Sora is KO'ed, the other players with "Death Link" on will also be KO'ed.
-    The opposite is also true.
-    """
-    display_name = "Death Link"
-    option_off = 0
-    option_toggle = 1
-    option_on = 2
-    default = 0
-
 class DonaldDeathLink(Toggle):
     """
-    If Donald is KO'ed, so is Sora.  If Death Link is toggled on in your client, this will send a death to everyone who enabled death link.
+    If Donald is KO'ed, so is Sora.
     """
     display_name = "Donald Death Link"
 
 class GoofyDeathLink(Toggle):
     """
-    If Goofy is KO'ed, so is Sora.  If Death Link is toggled on in your client, this will send a death to everyone who enabled death link.
+    If Goofy is KO'ed, so is Sora.
     """
     display_name = "Goofy Death Link"
 
@@ -424,30 +351,18 @@ class KeybladesUnlockChests(Toggle):
     If toggled on, the player is required to have a certain keyblade to open chests in certain worlds.
     
     TT   - Lionheart
-    
     WL   - Lady Luck
-    
     OC   - Olympia
-    
     DJ   - Jungle King
-    
     AG   - Three Wishes
-    
     MS   - Wishing Star
-    
     HT   - Pumpkinhead
-    
     NL   - Fairy Harp
-    
     HB   - Divine Rose
-    
     EotW - Oblivion
-    
     HAW  - Spellbinder
-    
     DI   - Oathkeeper
-    
-    Note: Does not apply to Atlantica, the emblem and carousel chests in Hollow Bastion, or the Aero chest in Neverland currently.
+    AL   - Crabclaw
     """
     display_name = "Keyblades Unlock Chests"
 
@@ -460,14 +375,6 @@ class InteractInBattle(DefaultOnToggle):
 class LogicDifficulty(Choice):
     """
     Determines what the randomizer logic may expect you to do to reach certain locations.
-
-    Beginner: Logic only expects what would be the natural solution in vanilla gameplay or similar, as well as a guarantee of tools for boss fights.
-    
-    Normal: Logic expects some clever use of abilities, exploration of options, and competent combat ability; generally does not require advanced knowledge.
-    
-    Proud: Logic expects advanced knowledge of tricks and obscure interactions, such as using Combo Master, Dumbo, and other unusual methods to reach locations.
-    
-    Minimal: Logic expects the bare minimum to get to locations; may require extensive grinding, beating fights with no tools, and performing very difficult or tedious tricks.
     """
     display_name = "Logic Difficulty"
     option_beginner = 0
@@ -478,7 +385,8 @@ class LogicDifficulty(Choice):
 
 class ExtraSharedAbilities(DefaultOnToggle):
     """
-    If on, adds extra shared abilities to the pool.  These can stack, so multiple high jumps make you jump higher and multiple glides make you superglide faster.
+    If on, adds extra shared abilities to the pool.
+    These can stack, so multiple high jumps make you jump higher and multiple glides make you superglide faster.
     """
     display_name = "Extra Shared Abilities"
 
@@ -509,17 +417,18 @@ class RandomizePostcards(Choice):
     option_chests = 1
     option_vanilla = 2
 
-class JungleSlider(Toggle):
+class ExcludedContent(OptionSet):
     """
-    Determines whether checks are behind the Jungle Slider minigame.
+    Locations in these groups will only contain filler.
     """
-    display_name = "Jungle Slider"
+    display_name = "Excluded Content"
+    valid_keys = ["Super Bosses", "Jungle Slider"]
 
 class StartingWorlds(Range):
     """
     Number of random worlds to start with in addition to Traverse Town, which is always available.
     
-    Will only consider Atlantica if toggled, and will only consider End of the World if its unlock is set to "Item".
+    Will only consider End of the World if its unlock is set to "Item".
     """
     display_name = "Starting Worlds"
     default = 4
@@ -534,46 +443,22 @@ class StartingTools(DefaultOnToggle):
 
 class RemoteItems(Choice):
     """
-    Determines if items can be placed on locations in your own world in such a way that will force them to be remote items.
+    Determines how local items (KH1 items found in KH1) are delivered to the player.
     
-    Off: When your items are placed in your world, they can only be placed in locations that they can be acquired without server connection (stats on levels, items in chests, etc).
-    
-    Allow: When your items are placed in your world, items that normally can't be placed in a location in-game are simply made remote (abilities on static events, etc).
-    
-    Full: All items are remote.  Use this when doing something like a co-op seed.
+    Off: The game handles granting local items.
+
+    Full: The server handles granting local items (requires connection to server).
     """
     display_name = "Remote Items"
     option_off = 0
-    option_allow = 1
     option_full = 2
     default = 0
-
-class Slot2LevelChecks(Range):
-    """
-    Determines how many levels have an additional item.
-    
-    If Remote Items is OFF, these checks will only contain abilities or items for other players.
-    """
-    display_name = "Slot 2 Level Checks"
-    default = 0
-    range_start = 0
-    range_end = 33
 
 class ShortenGoMode(DefaultOnToggle):
     """
     If on, the player warps to the final cutscene after defeating Ansem 1 > Darkside > Ansem 2, skipping World of Chaos.
     """
     display_name = "Shorten Go Mode"
-
-class DestinyIslands(Toggle):
-    """
-    If on, Adds a Destiny Islands item and a number of Raft Materials items to the pool.
-    
-    When "Destiny Islands" is found, Traverse Town will have an additional place to land - Seashore.
-    
-    "Raft Materials" allow progress into Day 2 and to Homecoming (Final Bosses).  The amount is defined in Day 2 Materials and Homecoming Materials.
-    """
-    display_name = "Destiny Islands"
 
 class MythrilInPool(Range):
     """
@@ -663,6 +548,12 @@ class FasterAnimations(DefaultOnToggle):
     """
     display_name = "Faster Animations"
 
+class SkipSummonAnimations(Toggle):
+    """
+    If on, summons appear immediately: their entrance cutscenes are skipped and the "Give me strength!" opener is shortened.
+    """
+    display_name = "Skip Summon Animations"
+
 class Unlock0Volume(Toggle):
     """
     If on, volume 1 mutes the audio channel.
@@ -699,20 +590,12 @@ class RandomizePartyMemberStartingAccessories(DefaultOnToggle):
     
     10 random accessories will be distributed amongst any party member aside from Sora in their starting equipment.
     """
-    display_name = "Randomize Party Member Starting Accessories"
-
-class MaxLevelForSlot2LevelChecks(Range):
-    """
-    Determines the max level for slot 2 level checks.
-    """
-    display_name = "Max Level for Slot 2 Level Checks"
-    default = 50
-    range_start = 2
-    range_end = 100
+    display_name = "Randomize Accessories"
 
 class RandomizeAPCosts(Choice):
     """
     Off: No randomization
+
     Shuffle: Ability AP Costs will be shuffled amongst themselves.
     
     Randomize: Ability AP Costs will be randomized to the specified max and min.
@@ -744,32 +627,38 @@ class MinAPCost(Range):
     range_start = 0
     range_end = 2
 
-class Day2Materials(Range):
+class Day1Materials(Range):
     """
-    The amount of Raft Materials required to access Day 2.
+    The amount of Raft Materials required to finish Day 1.
     """
-    display_name = "Day 2 Materials"
+    display_name = "Day 1 Materials"
     default = 4
     range_start = 0
     range_end = 20
 
-class HomecomingMaterials(Range):
+class Day2Materials(Range):
     """
-    The amount of Raft Materials required to access Homecoming (Final Bosses).
+    The amount of Raft Materials required to finish Day 2.
     """
-    display_name = "Homecoming Materials"
+    display_name = "Day 2 Materials"
     default = 10
     range_start = 0
     range_end = 20
 
 class MaterialsInPool(Range):
     """
-    The amount of Raft Materials required to access Homecoming (Final Bosses).
+    The amount of Raft Materials in the item pool.
     """
     display_name = "Materials in Pool"
-    default = 16
+    default = 13
     range_start = 0
     range_end = 20
+
+class RaftFinish(Toggle):
+    """
+    If on, finishing Day 2 lets you warp to Homecoming (Final Bosses).
+    """
+    display_name = "Raft Finish"
 
 class StackingWorldItems(DefaultOnToggle):
     """
@@ -784,10 +673,12 @@ class StackingWorldItems(DefaultOnToggle):
     HT - Forget-Me-Not and Jack-In-The-Box
     
     HB - Theon Vol. 6
+
+    AL - Crystal Trident
     
-    Adds an extra world to the pool for each that has a key item (WL, OC, DJ, HT, HB).
+    Adds an extra world to the pool for each that has a key item (WL, OC, DJ, HT, HB, AL).
     
-    Forces Halloween Town Key Item Bundle, Slides Bundle and Evidence Bundle ON.
+    Forces Halloween Town Item Bundle, Slides Bundle and Evidence Bundle ON.
     """
     display_name = "Stacking World Items"
 
@@ -797,7 +688,7 @@ class HalloweenTownKeyItemBundle(DefaultOnToggle):
     
     Removes Jack-in-the-Box from the pool.
     """
-    display_name = "Halloween Town Key Item Bundle"
+    display_name = "Halloween Town Item Bundle"
 
 class SlidesBundle(DefaultOnToggle):
     """
@@ -822,7 +713,7 @@ class EvidenceBundle(DefaultOnToggle):
 class RandomizeSpellMPCosts(Choice):
     """
     Off: No randomization.
-    Shuffle: Spell costs will be shuffled amongst themselves, (2 single pip spells, 3 singe MP spells, 2 double MP spells)
+    Shuffle: Spell costs will be shuffled amongst themselves, (2 single pip spells, 3 single MP spells, 2 double MP spells)
     Randomize: Spell costs will be randomized individually based on the defined upper and lower bounds.
     """
     display_name = "Randomize Spell MP Costs"
@@ -833,7 +724,7 @@ class RandomizeSpellMPCosts(Choice):
 
 class SpellMPCostMin(Choice):
     """
-    Define the minimum MP cost a spell can have
+    Define the minimum MP cost a spell can have.
     """
     display_name = "Spell MP Cost Minimum"
     option_half_pip = 15
@@ -845,7 +736,7 @@ class SpellMPCostMin(Choice):
     
 class SpellMPCostMax(Choice):
     """
-    Define the maximum MP cost a spell can have
+    Define the maximum MP cost a spell can have.
     """
     display_name = "Spell MP Cost Maximum"
     option_half_pip = 15
@@ -875,11 +766,10 @@ class AccessoryAugments(Toggle):
     These can be either positive or negative.
     """
     display_name = "Accessory Augments"
+
 class AugmentAbilitiesFromPool(Toggle):
     """
     If accessory augments is on, if an accessory's augment is assigned an ability, that ability can only be found on that accessory.
-    
-    This is forced to false if Remote Items is OFF.
     """
     display_name = "Augment Abilities from Pool"
 
@@ -892,13 +782,12 @@ class KH1Options(PerGameCommonOptions):
     lucky_emblems_in_pool: LuckyEmblemsInPool
     required_postcards: RequiredPostcards
     required_puppies: RequiredPuppies
-    super_bosses: SuperBosses
-    atlantica: Atlantica
-    hundred_acre_wood: HundredAcreWood
     skip_hundred_acre_wood_minigames: SkipHundredAcreWoodMinigames
-    cups: Cups
+    cups_standard: CupsStandard
+    cups_solo_time_trial: CupsSoloTimeTrial
     randomize_puppies: RandomizePuppies
     puppy_value: PuppyValue
+    excluded_content: ExcludedContent
     starting_worlds: StartingWorlds
     keyblades_unlock_chests: KeybladesUnlockChests
     interact_in_battle: InteractInBattle
@@ -922,23 +811,15 @@ class KH1Options(PerGameCommonOptions):
     keyblade_max_recoil: KeybladeMaxRecoil
     keyblade_min_mp: KeybladeMinMP
     keyblade_max_mp: KeybladeMaxMP
-    level_checks: LevelChecks
-    slot_2_level_checks: Slot2LevelChecks
-    force_stats_on_levels: ForceStatsOnLevels
-    strength_increase: StrengthIncrease
-    defense_increase: DefenseIncrease
-    hp_increase: HPIncrease
-    ap_increase: APIncrease
-    mp_increase: MPIncrease
-    accessory_slot_increase: AccessorySlotIncrease
-    item_slot_increase: ItemSlotIncrease
+    level_stats: LevelStats
+    level_check_locations: LevelCheckLocations
+    level_check_items: LevelCheckItems
+    additional_item_slots: AdditionalItemSlots
+    additional_accessory_slots: AdditionalAccessorySlots
     start_inventory_from_pool: StartInventoryPool
-    jungle_slider: JungleSlider
     starting_tools: StartingTools
     remote_items: RemoteItems
     shorten_go_mode: ShortenGoMode
-    death_link: DeathLink
-    destiny_islands: DestinyIslands
     orichalcum_in_pool: OrichalcumInPool
     orichalcum_price: OrichalcumPrice
     mythril_in_pool: MythrilInPool
@@ -951,18 +832,19 @@ class KH1Options(PerGameCommonOptions):
     early_skip: EarlySkip
     fast_camera: FastCamera
     faster_animations: FasterAnimations
+    skip_summon_animations: SkipSummonAnimations
     unlock_0_volume: Unlock0Volume
     unskippable: Unskippable
     auto_save: AutoSave
     warp_anywhere: WarpAnywhere
     randomize_party_member_starting_accessories: RandomizePartyMemberStartingAccessories
-    max_level_for_slot_2_level_checks: MaxLevelForSlot2LevelChecks
     randomize_ap_costs: RandomizeAPCosts
     max_ap_cost: MaxAPCost
     min_ap_cost: MinAPCost
+    day_1_materials: Day1Materials
     day_2_materials: Day2Materials
-    homecoming_materials: HomecomingMaterials
     materials_in_pool: MaterialsInPool
+    raft_finish: RaftFinish
     stacking_world_items: StackingWorldItems
     halloween_town_key_item_bundle: HalloweenTownKeyItemBundle
     slides_bundle: SlidesBundle
@@ -985,36 +867,28 @@ kh1_option_groups = [
         LuckyEmblemsInPool,
         RequiredPostcards,
         RequiredPuppies,
-        DestinyIslands,
+        Day1Materials,
         Day2Materials,
-        HomecomingMaterials,
         MaterialsInPool,
+        RaftFinish,
     ]),
     OptionGroup("Locations", [
-        SuperBosses,
-        Atlantica,
-        Cups,
-        HundredAcreWood,
+        CupsStandard,
+        CupsSoloTimeTrial,
         SkipHundredAcreWoodMinigames,
-        JungleSlider,
         RandomizeEmblemPieces,
         RandomizePostcards,
         RandomizePuppies,
         PuppyValue,
+        ExcludedContent,
     ]),
     OptionGroup("Levels", [
         EXPMultiplier,
-        LevelChecks,
-        Slot2LevelChecks,
-        MaxLevelForSlot2LevelChecks,
-        ForceStatsOnLevels,
-        StrengthIncrease,
-        DefenseIncrease,
-        HPIncrease,
-        APIncrease,
-        MPIncrease,
-        AccessorySlotIncrease,
-        ItemSlotIncrease,
+        LevelStats,
+        LevelCheckLocations,
+        LevelCheckItems,
+        AdditionalItemSlots,
+        AdditionalAccessorySlots,
     ]),
     OptionGroup("Equipment", [
         KeybladesUnlockChests,
@@ -1060,6 +934,7 @@ kh1_option_groups = [
         EarlySkip,
         FastCamera,
         FasterAnimations,
+        SkipSummonAnimations,
         Unlock0Volume,
         Unskippable,
         AutoSave,
@@ -1075,7 +950,6 @@ kh1_option_groups = [
         InteractInBattle,
         LogicDifficulty,
         ExtraSharedAbilities,
-        DeathLink,
         DonaldDeathLink,
         GoofyDeathLink,
         RemoteItems,
