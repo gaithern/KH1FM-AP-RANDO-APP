@@ -19,6 +19,10 @@ RANK_EMOJIS = {
 }
 LEADERBOARD_SIZE = 9
 
+DAILY_SEED_LOCK_NAME = f"{DB_NAME}_daily_seed"
+DAILY_DUO_SEED_LOCK_NAME = f"{DB_NAME}_daily_duo_seed"
+LOCK_WAIT_SECONDS = 300
+
 
 def get_connection():
     connection = None
@@ -73,6 +77,28 @@ def run_statement(sql, args=None):
     close_connection(connection)
 
 
+def take_named_lock(lock_name):
+    lock_connection = get_connection()
+    rows = execute(
+        lock_connection,
+        "SELECT GET_LOCK(%s, %s) AS acquired",
+        args=(lock_name, LOCK_WAIT_SECONDS),
+        fetch_results=True,
+    )
+    if rows[0]["acquired"] != 1:
+        close_connection(lock_connection)
+        raise RuntimeError(f"Timed out waiting for lock {lock_name}")
+    return lock_connection
+
+
+def release_named_lock(lock_connection, lock_name):
+    try:
+        execute(lock_connection, "SELECT RELEASE_LOCK(%s)", args=(lock_name,))
+    except pymysql.Error as error:
+        print(f"Error releasing lock {lock_name}, it is released when the connection closes: {error}")
+    close_connection(lock_connection)
+
+
 def get_todays_date_in_new_york():
     rows = fetch_rows(f"SELECT {TODAY_IN_NEW_YORK_SQL} as est_date;")
     return rows[0]["est_date"]
@@ -91,6 +117,14 @@ def register_player(discord_id, discord_name):
 
 
 def get_todays_daily_seed_link():
+    lock_connection = take_named_lock(DAILY_SEED_LOCK_NAME)
+    try:
+        return find_or_create_todays_daily_seed()
+    finally:
+        release_named_lock(lock_connection, DAILY_SEED_LOCK_NAME)
+
+
+def find_or_create_todays_daily_seed():
     rows = fetch_rows(f"""
         SELECT
             seed_id,
@@ -328,6 +362,14 @@ def get_teams_daily_seed(discord_id):
 
 
 def get_todays_daily_duo_seed_link():
+    lock_connection = take_named_lock(DAILY_DUO_SEED_LOCK_NAME)
+    try:
+        return find_or_create_todays_daily_duo_seed()
+    finally:
+        release_named_lock(lock_connection, DAILY_DUO_SEED_LOCK_NAME)
+
+
+def find_or_create_todays_daily_duo_seed():
     rows = fetch_rows(f"""
         SELECT
             seed_id,
