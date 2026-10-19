@@ -5,7 +5,6 @@ import json
 import os
 import re
 import shutil
-import sys
 import time
 import zipfile
 
@@ -159,9 +158,9 @@ def build_kh1_apworld():
 
 
 def generate(players_folder, server_password=None):
-    sys.argv.extend(["--player_files_path", players_folder])
     set_root()
-    generation_args, seed = ap_generate.main()
+    generation_settings = ap_generate.mystery_argparse(["--player_files_path", players_folder])
+    generation_args, seed = ap_generate.main(generation_settings)
 
     from Main import main as run_generation
     from settings import get_settings
