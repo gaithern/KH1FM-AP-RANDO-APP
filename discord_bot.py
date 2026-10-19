@@ -10,7 +10,6 @@ import discord_bot_settings
 TOKEN = discord_bot_settings.DISCORD_BOT_TOKEN
 URL_BASE = discord_bot_settings.URL_BASE
 
-FLASK_REGISTER_URL = os.environ.get('FLASK_WRITE_URL', f'{URL_BASE}/register')
 FLASK_AP_GENERATE_URL = os.environ.get('FLASK_AP_UPLOAD_URL', f'{URL_BASE}/generate')
 FLASK_AP_DAILY_SEED_URL = os.environ.get('FLASK_AP_DAILY_SEED_URL', f'{URL_BASE}/daily_seed')
 FLASK_AP_DAILY_SEED_COMPLETE_URL = os.environ.get('FLASK_AP_DAILY_SEED_COMPLETE_URL', f'{URL_BASE}/daily_seed_complete')
@@ -74,11 +73,6 @@ async def reply_with_mod_or_text(context, response, mod_message):
         await send_downloaded_mod(context, response)
     else:
         await context.send(f"Generation completed.\nResponse: {response.text}")
-
-
-@bot.command(help="Stores data and a count in the Flask app's database.")
-async def register(context):
-    await post_json_and_reply(context, FLASK_REGISTER_URL, author_identity(context))
 
 
 @bot.command(help="Generates a single player KH1 AP Randomizer game using the attached YAML")
