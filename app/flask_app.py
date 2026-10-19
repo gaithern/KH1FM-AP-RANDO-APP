@@ -72,17 +72,6 @@ def get_safe_upload_name():
     return secure_filename(uploaded_name)
 
 
-def get_player_folder_name(discord_id):
-    if discord_id is None:
-        return 'None'
-    digits = discord_id
-    if digits.startswith('-'):
-        digits = digits[1:]
-    if not digits.isdigit():
-        return None
-    return discord_id
-
-
 def generate_and_send_mod(player_folder):
     generated_zip_path, multiworld = ap_tools.generate(player_folder)
     unzipped_folder_path = generated_zip_path[:-len('.zip')]
@@ -102,26 +91,28 @@ def generate_and_send_mod(player_folder):
 
 @app.route('/generate', methods=['POST'])
 def generate():
-    discord_id = request.form.get('discord_id')
     file_error = get_uploaded_file_error()
     if file_error is not None:
         return jsonify({'error': file_error}), 400
     file = request.files['file']
 
-    player_folder_name = get_player_folder_name(discord_id)
-    if player_folder_name is None:
-        return jsonify({'error': 'Invalid discord_id'}), 400
+    request_folder = f'{YAMLS_ROOT}/{secrets.token_hex(16)}/'
+    ap_tools.create_or_empty_folder(request_folder)
+    try:
+        return save_yaml_and_generate(file, request_folder)
+    finally:
+        ap_tools.remove_folder_and_contents(request_folder)
 
-    player_folder = f'{YAMLS_ROOT}/{player_folder_name}/'
-    ap_tools.create_or_empty_folder(player_folder)
-    yaml_path = os.path.join(player_folder, get_safe_upload_name())
+
+def save_yaml_and_generate(file, request_folder):
+    yaml_path = os.path.join(request_folder, get_safe_upload_name())
     try:
         file.save(yaml_path)
     except Exception as error:
         return jsonify({'error': f'Error saving file: {error}'}), 500
 
     try:
-        return generate_and_send_mod(player_folder)
+        return generate_and_send_mod(request_folder)
     except Exception as error:
         print(f'Internal server error: {error}')
         return jsonify({'error': f'Internal server error: {error}'}), 500
