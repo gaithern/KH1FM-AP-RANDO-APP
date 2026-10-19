@@ -1,63 +1,67 @@
-"""Draftable KH1 item pool, sourced from the host's generated seed.
-
-The host uploads their YAML before the draft starts; the seed is generated
-up front and every item it contains (in the game's chosen categories)
-becomes a draft candidate. The host then chooses which candidates go into
-the draft. Drafting an item doesn't remove it from the seed - the drafter
-just gets an extra copy sent at the start, so they have it early and will
-usually still find the seed's own copy later.
-
-Categories still come from worlds/kh1/Items.py's item_table, so new
-categories are available without code changes here.
-"""
-
 import random
 from collections import Counter
 
-DEFAULT_CATEGORIES = ["Keyblades", "Accessory"]
+DEFAULT_CATEGORIES = ["Keyblades", "Accessories"]
 
-# Excluded entirely from the draft UI (not just unchecked by default) -
-# Augment and Weapons have no single icon that represents them well, and
-# the rest were dropped as too fiddly/uninteresting for a quick draft.
 EXCLUDED_CATEGORIES = {
-    "Augment", "Camping", "Item", "Level Up", "Limited Level Up", "Stat Ups", "Weapons",
+    "Augments", "Camping Items", "Consumables", "Level Ups", "Limited Level Ups", "Stat Ups", "Weapons",
 }
+
+HOST_PLAYER_NUMBER = 1
+
+
+def get_category(item_data) -> str:
+    first_group = item_data.groups[0]
+    return first_group
 
 
 def available_categories() -> list[str]:
     from worlds.kh1.Items import item_table
-    categories = {data.category for data in item_table.values()}
-    return sorted(categories - EXCLUDED_CATEGORIES)
+
+    categories = set()
+    for item_data in item_table.values():
+        category = get_category(item_data)
+        if category not in EXCLUDED_CATEGORIES:
+            categories.add(category)
+    return sorted(categories)
 
 
 def validate_categories(item_categories: list[str]) -> None:
-    unknown = set(item_categories) - set(available_categories())
-    if unknown:
-        raise ValueError(f"Unknown item categories: {sorted(unknown)}")
+    unknown_categories = set(item_categories) - set(available_categories())
+    if unknown_categories:
+        raise ValueError(f"Unknown item categories: {sorted(unknown_categories)}")
+
+
+def is_draftable_location_item(location, item_table, item_categories: list[str]) -> bool:
+    item = location.item
+    if item is None:
+        return False
+    if item.player != HOST_PLAYER_NUMBER:
+        return False
+    if item.code is None:
+        return False
+    if item.name not in item_table:
+        return False
+    category = get_category(item_table[item.name])
+    return category in item_categories
 
 
 def seed_candidates(multiworld, item_categories: list[str]) -> list[tuple[str, str, int]]:
-    """(item_name, category, quantity) for every item placed in player 1's
-    seed whose category is one of item_categories. Reads placed location
-    items rather than multiworld.itempool so items the world locks directly
-    onto locations (never passing through itempool) are included too.
-    Starting inventory isn't a location item, so it's naturally left out -
-    the player already has it."""
     from worlds.kh1.Items import item_table
-    counts = Counter(
-        location.item.name
-        for location in multiworld.get_locations(1)
-        if location.item is not None and location.item.player == 1 and location.item.code is not None
-        and location.item.name in item_table and item_table[location.item.name].category in item_categories
-    )
-    return sorted((name, item_table[name].category, quantity) for name, quantity in counts.items())
+
+    quantity_by_item_name = Counter()
+    for location in multiworld.get_locations(HOST_PLAYER_NUMBER):
+        if is_draftable_location_item(location, item_table, item_categories):
+            quantity_by_item_name[location.item.name] += 1
+
+    candidates = []
+    for item_name, quantity in quantity_by_item_name.items():
+        category = get_category(item_table[item_name])
+        candidates.append((item_name, category, quantity))
+    return sorted(candidates)
 
 
 def build_pool(selected: list[tuple[str, str]], count: int) -> list[tuple[str, str]]:
-    """Returns exactly `count` (item_name, category) pairs sampled without
-    replacement from the host's selection. The host must select at least
-    `count` items - selecting more lets chance decide which of them make it
-    into the draft."""
     if len(selected) < count:
         raise ValueError(f"Select at least {count} items for this draft (selected {len(selected)})")
     return random.sample(selected, count)

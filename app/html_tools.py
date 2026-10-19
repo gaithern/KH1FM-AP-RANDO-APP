@@ -1,44 +1,54 @@
-import requests
-from pprint import pprint
-from bs4 import BeautifulSoup
-from envr import AP_LOGIN
-from datetime import datetime, timedelta
 import re
+from datetime import datetime, timedelta
 
-def get_session():
-    session = requests.Session()
-    session.get(AP_LOGIN)
-    return session
+from bs4 import BeautifulSoup
+
+import ap_tools
+
+ROOM_LOG_TIMESTAMP_PATTERN = re.compile(r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\]")
+ROOM_LOG_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S,%f"
+ROOM_LOG_UTC_TO_EASTERN = timedelta(hours=4)
+ROOM_LOG_START_MARKER = "(Team #1)"
+ROOM_LOG_END_MARKER = "Notice (all): Team #1 has completed all of their games! Congratulations!"
+
+CHECKS_TABLE_COLUMNS = ["Number", "Name", "Game", "Status", "Checks", "Percent", "Last Activity"]
+
+
+def get_html(url):
+    print(f"Getting HTML from URL {url}...")
+    session = ap_tools.get_session()
+    return session.get(url).text
+
 
 def get_tracker_url(room_url):
     room_html = get_html(room_url)
-    html_section = room_html.split("/tracker/")[1]
-    html_section = html_section.split("\"")[0]
-    tracker_url = f"https://archipelago.gg/tracker/{html_section}"
-    return tracker_url
+    text_after_tracker = room_html.split("/tracker/")[1]
+    tracker_id = text_after_tracker.split("\"")[0]
+    return f"https://archipelago.gg/tracker/{tracker_id}"
+
 
 def get_checks_table(tracker_html):
-    soup = BeautifulSoup(tracker_html, 'html.parser')
-    checks_table = soup.find('table', {'id': 'checks-table'})
-    table_data = []
-    for row in checks_table.find_all('tr'):
-        row_data = []
-        for cell in row.find_all(['td', 'th']):  # Handle both td and th
-            row_data.append(cell.text.strip())
-        table_data.append(row_data)
-    checks_table = table_data[1:-1]
-    checks_library = []
-    for entry in checks_table:
-        slot_info = {
-            "Number": entry[0],
-            "Name": entry[1],
-            "Game": entry[2],
-            "Status": entry[3],
-            "Checks": entry[4],
-            "Percent": entry[5],
-            "Last Activity": entry[6]}
-        checks_library.append(slot_info)
-    return checks_library
+    page = BeautifulSoup(tracker_html, 'html.parser')
+    table = page.find('table', {'id': 'checks-table'})
+
+    all_rows = []
+    for table_row in table.find_all('tr'):
+        cell_texts = []
+        for cell in table_row.find_all(['td', 'th']):
+            cell_texts.append(cell.text.strip())
+        all_rows.append(cell_texts)
+
+    rows_without_header_and_footer = all_rows[1:-1]
+
+    slots = []
+    for row in rows_without_header_and_footer:
+        slot = {}
+        for column_index in range(len(CHECKS_TABLE_COLUMNS)):
+            column_name = CHECKS_TABLE_COLUMNS[column_index]
+            slot[column_name] = row[column_index]
+        slots.append(slot)
+    return slots
+
 
 def all_slots_goaled(room_url):
     print("Getting tracker URL from Room URL")
@@ -59,39 +69,32 @@ def all_slots_goaled(room_url):
     print(f"All goaled: {all_goaled}")
     return all_goaled
 
-def get_html(url):
-    print(f"Getting HTML from URL {url}...")
-    session = get_session()
-    return session.get(url).text
 
-def get_event_times(url):
-    """
-    Parse a log text and return the start time, end time, and duration.
-    """
-    # Timestamp format: [YYYY-MM-DD HH:MM:SS,mmm]
-    
-    log_text = get_html(url.replace("/room/", "/log/"))
-    
+def read_log_line_time(line):
+    timestamp = ROOM_LOG_TIMESTAMP_PATTERN.search(line)
+    if not timestamp:
+        return None
+    utc_time = datetime.strptime(timestamp.group(1), ROOM_LOG_TIMESTAMP_FORMAT)
+    return utc_time - ROOM_LOG_UTC_TO_EASTERN
+
+
+def get_event_times(room_url):
+    log_url = room_url.replace("/room/", "/log/")
+    log_text = get_html(log_url)
     print(log_text)
-    
-    timestamp_pattern = re.compile(r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\]")
-
-    start_marker = "(Team #1)"
-    end_marker = "Notice (all): Team #1 has completed all of their games! Congratulations!"
 
     start_time = None
     end_time = None
-
     for line in log_text.splitlines():
-        if start_marker in line and start_time is None:
-            match = timestamp_pattern.search(line)
-            if match:
-                start_time = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S,%f") - timedelta(hours=4)
-        if end_marker in line and end_time is None:
-            match = timestamp_pattern.search(line)
-            if match:
-                end_time = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S,%f") - timedelta(hours=4)
+        if ROOM_LOG_START_MARKER in line and start_time is None:
+            start_time = read_log_line_time(line)
+        if ROOM_LOG_END_MARKER in line and end_time is None:
+            end_time = read_log_line_time(line)
         if start_time and end_time:
             break
 
-    return start_time, end_time, None if start_time is None or end_time is None else end_time - start_time
+    if start_time is None or end_time is None:
+        duration = None
+    else:
+        duration = end_time - start_time
+    return start_time, end_time, duration

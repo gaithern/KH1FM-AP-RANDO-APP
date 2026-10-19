@@ -7,62 +7,79 @@ from worlds.AutoWorld import AutoWorldRegister
 
 KH1_GAME_NAME = 'Kingdom Hearts'
 
-def _slugify(name):
-    return re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
 
-def _describe_option(key, option):
-    """Serializes one option class into the shape generate_a_seed.html renders.
-    Returns None for option types the website form has no control for (e.g.
-    the dict/list options in "Item & Location Options")."""
+def make_slug(name):
+    lowercase_name = name.lower()
+    dashed_name = re.sub(r'[^a-z0-9]+', '-', lowercase_name)
+    return dashed_name.strip('-')
+
+
+def describe_choice_option(setting, option):
+    setting['type'] = 'select'
+    choices = []
+    for value, name in sorted(option.name_lookup.items()):
+        choices.append({'value': name, 'text': option.get_option_name(value)})
+    setting['options'] = choices
+    setting['default'] = option.name_lookup[option.default]
+
+
+def describe_range_option(setting, option):
+    setting['type'] = 'range'
+    setting['min'] = option.range_start
+    setting['max'] = option.range_end
+    setting['default'] = option.default
+    if issubclass(option, Options.NamedRange):
+        special_values = []
+        for name, value in option.special_range_names.items():
+            special_values.append({'value': value, 'text': name})
+        setting['special'] = special_values
+
+
+def describe_set_option(setting, option):
+    setting['type'] = 'set'
+    setting['options'] = list(option.valid_keys)
+    setting['default'] = sorted(option.default)
+
+
+def describe_option(key, option):
+    display_name = getattr(option, 'display_name', key)
+    description = cleandoc(option.__doc__ or '')
     setting = {
         'key': key,
-        'label': getattr(option, 'display_name', key),
-        'description': cleandoc(option.__doc__ or ''),
+        'label': display_name,
+        'description': description,
         'rich_text_doc': bool(option.rich_text_doc),
     }
-    # Toggle and Choice are both NumericOptions with a name_lookup; their YAML
-    # value is the option key (e.g. "true", "lucky_emblems"), not the int.
+
     if issubclass(option, (Options.Toggle, Options.Choice)):
-        setting['type'] = 'select'
-        setting['options'] = [
-            {'value': name, 'text': option.get_option_name(value)}
-            for value, name in sorted(option.name_lookup.items())
-        ]
-        setting['default'] = option.name_lookup[option.default]
+        describe_choice_option(setting, option)
     elif issubclass(option, Options.Range):
-        setting['type'] = 'range'
-        setting['min'] = option.range_start
-        setting['max'] = option.range_end
-        setting['default'] = option.default
-        if issubclass(option, Options.NamedRange):
-            setting['special'] = [
-                {'value': value, 'text': name}
-                for name, value in option.special_range_names.items()
-            ]
+        describe_range_option(setting, option)
     elif issubclass(option, Options.OptionSet) and option.valid_keys:
-        setting['type'] = 'set'
-        setting['options'] = list(option.valid_keys)
-        setting['default'] = sorted(option.default)
+        describe_set_option(setting, option)
     else:
         return None
     return setting
 
+
 @functools.cache
 def get_kh1_options_schema():
-    """Builds the generate-a-seed settings schema straight from the installed
-    KH1 world's option groups, so the website form always matches the apworld
-    version this backend generates with. Cached since the world can't change
-    without a reload of the web app."""
     world = AutoWorldRegister.world_types[KH1_GAME_NAME]
-    # AP's every-game options (progression_balancing, accessibility) are left to
-    # their defaults rather than exposed on the website form.
-    common_option_keys = set(Options.CommonOptions.type_hints)
+    options_left_at_default = set(Options.CommonOptions.type_hints)
+    option_groups = Options.get_option_groups(world, Options.Visibility.simple_ui)
+
     tabs = []
-    for group_name, group_options in Options.get_option_groups(world, Options.Visibility.simple_ui).items():
-        settings = [s for s in (_describe_option(key, option) for key, option in group_options.items()
-                                if key not in common_option_keys) if s]
+    for group_name, group_options in option_groups.items():
+        settings = []
+        for key, option in group_options.items():
+            if key in options_left_at_default:
+                continue
+            setting = describe_option(key, option)
+            if setting is not None:
+                settings.append(setting)
         if settings:
-            tabs.append({'slug': _slugify(group_name), 'name': group_name, 'settings': settings})
+            tabs.append({'slug': make_slug(group_name), 'name': group_name, 'settings': settings})
+
     return {
         'game': KH1_GAME_NAME,
         'world_version': world.world_version.as_simple_string(),

@@ -1,266 +1,241 @@
 import Utils as ap_utils
 import Generate as ap_generate
-import json
-import re
-import requests
 import io
+import json
 import os
+import re
 import shutil
 import sys
 import time
 import zipfile
+
+import requests
 from bs4 import BeautifulSoup
 from worlds.Files import APWorldContainer
 
-from envr import AP_ROOT, AP_UPLOAD_URL, AP_DAILY_SEED_YAML_DIR, AP_DAILY_SEED_OUTPUT_DIR, AP_LOGIN, AP_DAILY_DUO_SEED_YAML_DIR, AP_DAILY_DUO_SEED_OUTPUT_DIR
+from envr import (
+    AP_ROOT,
+    AP_UPLOAD_URL,
+    AP_LOGIN,
+    AP_DAILY_SEED_YAML_DIR,
+    AP_DAILY_SEED_OUTPUT_DIR,
+    AP_DAILY_DUO_SEED_YAML_DIR,
+    AP_DAILY_DUO_SEED_OUTPUT_DIR,
+)
 
 ROOM_PORT_POLL_TIMEOUT_SECONDS = 60
 ROOM_PORT_POLL_INTERVAL_SECONDS = 3
+
 
 def get_session():
     session = requests.Session()
     session.get(AP_LOGIN)
     return session
 
-def remove_path_from_filepath(filepath):
-  """
-  Extracts the filename from a given file path, removing the directory path.
 
-  Args:
-    filepath (str): The full path to the file.
-
-  Returns:
-    str: The filename without the directory path.
-         Returns an empty string if the input is None or empty.
-  """
-  if not filepath:
-    return ""
-  return os.path.basename(filepath)
-
-def prepare_path(path):
+def create_or_empty_folder(path):
     if not os.path.exists(path):
         os.makedirs(path)
-    else:
-        for filename in os.listdir(path):
-            file_path = os.path.join(path, filename)
-            if os.path.isfile(file_path):
-                try:
-                    os.remove(file_path)
-                    print(f"Removed file: {file_path}")
-                except OSError as e:
-                    print(f"Error removing file '{file_path}': {e}")
+        return
+
+    for file_name in os.listdir(path):
+        file_path = os.path.join(path, file_name)
+        if not os.path.isfile(file_path):
+            continue
+        try:
+            os.remove(file_path)
+            print(f"Removed file: {file_path}")
+        except OSError as error:
+            print(f"Error removing file '{file_path}': {error}")
+
 
 def move_file(source_path, destination_path):
-  """Moves a file from the source path to the destination path.
+    try:
+        shutil.move(source_path, destination_path)
+        print(f"Successfully moved '{source_path}' to '{destination_path}'")
+    except FileNotFoundError:
+        print(f"Error: Source file not found at '{source_path}'")
+    except FileExistsError:
+        print(f"Error: Destination file already exists at '{destination_path}'")
+    except OSError as error:
+        print(f"Error moving file: {error}")
 
-  Args:
-    source_path (str): The full path to the file to be moved.
-    destination_path (str): The full path to the destination directory.
-                           If the destination path includes a filename, the file
-                           will be renamed during the move.
-  """
-  try:
-    shutil.move(source_path, destination_path)
-    print(f"Successfully moved '{source_path}' to '{destination_path}'")
-  except FileNotFoundError:
-    print(f"Error: Source file not found at '{source_path}'")
-  except FileExistsError:
-    print(f"Error: Destination file already exists at '{destination_path}'")
-  except OSError as e:
-    print(f"Error moving file: {e}")
 
 def get_redirected_url(url):
-    """
-    Follows redirects for a given URL and returns the final redirected URL.
+    session = get_session()
+    response = session.get(url, allow_redirects=True)
+    response.raise_for_status()
+    return response.url
 
-    Args:
-      url: The initial URL to check.
 
-    Returns:
-      The final URL after all redirects, or None if an error occurs.
-    """
+def remove_file_and_report(file_path):
     try:
-        session = get_session()
-        response = session.get(url, allow_redirects=True)
-        response.raise_for_status()  # Raise an exception for bad status codes
-        return response.url
-    except session.exceptions.RequestException as e:
-        print(f"Error during request: {e}")
-        return None
+        os.remove(file_path)
+        print(f"Removed file: {file_path}")
+    except Exception as error:
+        print(f"Error removing file '{file_path}': {error}")
 
-def remove_directory_os_walk(path):
-    """
-    Removes the specified directory and all files and subdirectories within it
-    using os.walk to delete files and then the empty directories.
-    This can sometimes be more robust with permissions.
 
-    Args:
-        path (str): The path to the directory to remove.
-    """
+def remove_empty_folder_and_report(folder_path):
+    try:
+        os.rmdir(folder_path)
+        print(f"Removed directory: {folder_path}")
+    except OSError as error:
+        print(f"Error removing directory '{folder_path}': {error}")
+
+
+def remove_folder_and_contents(path):
     if not os.path.exists(path):
         print(f"Directory not found: {path}")
         return
 
     try:
-        for root, dirs, files in os.walk(path, topdown=False):
-            for name in files:
-                filepath = os.path.join(root, name)
-                try:
-                    os.remove(filepath)
-                    print(f"Removed file: {filepath}")
-                except Exception as e:
-                    print(f"Error removing file '{filepath}': {e}")
-            for name in dirs:
-                dirpath = os.path.join(root, name)
-                try:
-                    os.rmdir(dirpath)
-                    print(f"Removed directory: {dirpath}")
-                except OSError as e:
-                    print(f"Error removing directory '{dirpath}': {e}")
+        for folder, subfolder_names, file_names in os.walk(path, topdown=False):
+            for file_name in file_names:
+                remove_file_and_report(os.path.join(folder, file_name))
+            for subfolder_name in subfolder_names:
+                remove_empty_folder_and_report(os.path.join(folder, subfolder_name))
+
         try:
             os.rmdir(path)
             print(f"Removed top-level directory: {path}")
-        except OSError as e:
-            print(f"Error removing top-level directory '{path}': {e}")
+        except OSError as error:
+            print(f"Error removing top-level directory '{path}': {error}")
+    except Exception as error:
+        print(f"An error occurred while removing directory '{path}': {error}")
 
-    except Exception as e:
-        print(f"An error occurred while removing directory '{path}': {e}")
 
-def get_nested_zip(zip_file_path):
+def find_nested_zip_name(zip_file_path):
     try:
         with zipfile.ZipFile(zip_file_path, 'r') as zip_file:
-            for item in zip_file.namelist():
-                if os.path.splitext(item)[1].lower() == '.zip':
-                    return item
+            for name in zip_file.namelist():
+                extension = os.path.splitext(name)[1]
+                if extension.lower() == '.zip':
+                    return name
             return None
     except zipfile.BadZipFile:
         return None
 
+
 def extract_zip(zip_file_path):
-    """Extracts a zip file to a folder with the same name."""
-
-    with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
-        # Get the name of the zip file without the extension
-        folder_name = os.path.splitext(zip_file_path)[0]
-
-        # Create the folder if it doesn't exist
+    folder_name = os.path.splitext(zip_file_path)[0]
+    with zipfile.ZipFile(zip_file_path, 'r') as zip_file:
         os.makedirs(folder_name, exist_ok=True)
+        zip_file.extractall(folder_name)
 
-        # Extract all contents of the zip file to the folder
-        zip_ref.extractall(folder_name)
 
 def set_root():
     ap_utils.local_path.cached_path = AP_ROOT
 
+
 def build_kh1_apworld():
-    """Zips the worlds/kh1 package into an in-memory .apworld archive."""
-    world_dir = os.path.join(AP_ROOT, 'worlds', 'kh1')
-    manifest_path = os.path.join(world_dir, 'archipelago.json')
+    world_folder = os.path.join(AP_ROOT, 'worlds', 'kh1')
+    manifest_path = os.path.join(world_folder, 'archipelago.json')
     with open(manifest_path, 'r', encoding='utf-8') as manifest_file:
         manifest = json.load(manifest_file)
 
-    # Container format fields (version/compatible_version) describe the .apworld zip
-    # scheme itself, not the world, so they're pulled live from Files.py rather than
-    # hand-maintained in archipelago.json. Mirrors Archipelago's own "Build APWorlds"
-    # launcher component (worlds/LauncherComponents.py: _build_apworlds).
     apworld = APWorldContainer()
     apworld.game = manifest['game']
-    manifest.update(apworld.get_manifest())
+    container_format_fields = apworld.get_manifest()
+    manifest.update(container_format_fields)
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        for root, dirs, files in os.walk(world_dir):
-            dirs[:] = [d for d in dirs if d != '__pycache__']
-            for filename in files:
-                if filename.endswith('.pyc'):
+        for folder, subfolder_names, file_names in os.walk(world_folder):
+            if '__pycache__' in folder.split(os.sep):
+                continue
+            for file_name in file_names:
+                if file_name.endswith('.pyc'):
                     continue
-                file_path = os.path.join(root, filename)
-                arcname = os.path.join('kh1', os.path.relpath(file_path, world_dir))
+                file_path = os.path.join(folder, file_name)
+                path_inside_world = os.path.relpath(file_path, world_folder)
+                path_inside_zip = os.path.join('kh1', path_inside_world)
                 if file_path == manifest_path:
-                    zip_file.writestr(arcname, json.dumps(manifest))
+                    zip_file.writestr(path_inside_zip, json.dumps(manifest))
                 else:
-                    zip_file.write(file_path, arcname)
+                    zip_file.write(file_path, path_inside_zip)
     buffer.seek(0)
     return buffer
 
+
 def generate(players_folder, server_password=None):
-    """Generates a multiworld from the YAMLs in players_folder. If
-    server_password is given, it's baked into the multidata so any room
-    created from the resulting zip can be administered via `!admin login
-    <server_password>` - otherwise (the default, used by /generate,
-    /daily_seed, /daily_duo_seed) admin is disabled, unchanged from
-    today's behavior. Returns (output_zip_path, multiworld) - callers that
-    need the resolved player name (e.g. after a YAML's `name:` used a
-    template placeholder like {number}) can read
-    multiworld.get_player_name(1)."""
     sys.argv.extend(["--player_files_path", players_folder])
     set_root()
-    erargs, seed = ap_generate.main()
-    from Main import main as ERmain
+    generation_args, seed = ap_generate.main()
+
+    from Main import main as run_generation
     from settings import get_settings
+
     baked_server_options = None
     if server_password is not None:
-        baked_server_options = {**get_settings().server_options.as_dict(), "server_password": server_password}
-    multiworld = ERmain(erargs, seed, baked_server_options=baked_server_options)
-    return (f"{AP_ROOT}output/AP_{multiworld.seed_name}.zip", multiworld)
+        baked_server_options = dict(get_settings().server_options.as_dict())
+        baked_server_options["server_password"] = server_password
+
+    multiworld = run_generation(generation_args, seed, baked_server_options=baked_server_options)
+    output_zip_path = f"{AP_ROOT}output/AP_{multiworld.seed_name}.zip"
+    return output_zip_path, multiworld
+
 
 def new_room_link(seed_link):
-    """Derives a fresh room from an already-uploaded seed link, same as
-    mysql_tools.get_players_daily_seed does per-player for the daily seed."""
-    return get_redirected_url(seed_link.replace("/seed/", "/new_room/"))
+    new_room_url = seed_link.replace("/seed/", "/new_room/")
+    return get_redirected_url(new_room_url)
+
 
 def get_room_connect_address(room_link):
-    """Polls the room page for its `/connect <address>:<port>` hint (shown
-    once the real archipelago.gg site has launched that room's server
-    process - this can lag a few seconds behind room creation) and returns
-    the address:port string an AP client can connect to."""
     session = get_session()
     deadline = time.monotonic() + ROOM_PORT_POLL_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         room_html = session.get(room_link).text
-        match = re.search(r"/connect ([^\s:']+):(\d+)", room_html)
-        if match:
-            return f"{match.group(1)}:{match.group(2)}"
+        connect_hint = re.search(r"/connect ([^\s:']+):(\d+)", room_html)
+        if connect_hint:
+            address = connect_hint.group(1)
+            port = connect_hint.group(2)
+            return f"{address}:{port}"
         time.sleep(ROOM_PORT_POLL_INTERVAL_SECONDS)
     raise TimeoutError(f"Room at {room_link} never reported a connect address")
 
+
 def get_seed_link(file_path):
-    with open(file_path, 'rb') as f:
-        files = {'file': (os.path.basename(file_path), f)}
+    with open(file_path, 'rb') as zip_file:
+        files = {'file': (os.path.basename(file_path), zip_file)}
         session = get_session()
         response = session.post(AP_UPLOAD_URL, files=files)
         response.raise_for_status()
-        html_string = response.text
-        soup = BeautifulSoup(html_string, 'html.parser')
-        title_text = soup.title.string
-        seed = title_text.split("View Seed ")[-1]
-        seed_url = f"https://archipelago.gg/seed/{seed}"
-        return seed_url
+
+    page = BeautifulSoup(response.text, 'html.parser')
+    page_title = page.title.string
+    seed = page_title.split("View Seed ")[-1]
+    return f"https://archipelago.gg/seed/{seed}"
+
 
 def remove_output(file_path):
     os.remove(file_path)
 
-def get_inner_zip_name(file_path):
-    ap_zip_file = file_path
-    nested_zip = get_nested_zip(ap_zip_file)
-    if nested_zip:
-        extract_zip(ap_zip_file)
-        ap_zip_file = ap_zip_file.replace(".zip", "") + "/" + nested_zip
-    return ap_zip_file
 
-def generate_daily_seed(date):
-    generation_zip_filepath, _ = generate(AP_DAILY_SEED_YAML_DIR)
-    generation_zip_filename = remove_path_from_filepath(generation_zip_filepath)
-    move_file(generation_zip_filepath, AP_DAILY_SEED_OUTPUT_DIR)
-    generation_zip = f"{AP_DAILY_SEED_OUTPUT_DIR}/{generation_zip_filename}"
-    inner_zip_name = get_inner_zip_name(generation_zip)
-    seed_link = get_seed_link(generation_zip)
+def get_inner_zip_name(file_path):
+    nested_zip_name = find_nested_zip_name(file_path)
+    if not nested_zip_name:
+        return file_path
+    extract_zip(file_path)
+    extracted_folder = file_path.replace(".zip", "")
+    return extracted_folder + "/" + nested_zip_name
+
+
+def generate_into_folder(yaml_folder, output_folder):
+    generated_zip_path, multiworld = generate(yaml_folder)
+    generated_zip_name = os.path.basename(generated_zip_path)
+    move_file(generated_zip_path, output_folder)
+    return f"{output_folder}/{generated_zip_name}"
+
+
+def generate_daily_seed():
+    generated_zip = generate_into_folder(AP_DAILY_SEED_YAML_DIR, AP_DAILY_SEED_OUTPUT_DIR)
+    inner_zip_name = get_inner_zip_name(generated_zip)
+    seed_link = get_seed_link(generated_zip)
     return seed_link, inner_zip_name
 
-def generate_daily_duo_seed(date):
-    generation_zip_filepath, _ = generate(AP_DAILY_DUO_SEED_YAML_DIR)
-    generation_zip_filename = remove_path_from_filepath(generation_zip_filepath)
-    move_file(generation_zip_filepath, AP_DAILY_DUO_SEED_OUTPUT_DIR)
-    generation_zip = f"{AP_DAILY_DUO_SEED_OUTPUT_DIR}/{generation_zip_filename}"
-    seed_link = get_seed_link(generation_zip)
+
+def generate_daily_duo_seed():
+    generated_zip = generate_into_folder(AP_DAILY_DUO_SEED_YAML_DIR, AP_DAILY_DUO_SEED_OUTPUT_DIR)
+    seed_link = get_seed_link(generated_zip)
     return seed_link

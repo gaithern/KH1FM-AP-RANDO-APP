@@ -1,6 +1,5 @@
 import os
 
-# Environment-specific values are set via os.environ in the WSGI file (not here). Single-branch setup as of today.
 DB_HOST = 'ngaither.mysql.pythonanywhere-services.com'
 DB_USER = 'ngaither'
 DB_PASSWORD = os.environ['DB_PASSWORD']
@@ -15,7 +14,6 @@ AP_DAILY_DUO_SEED_YAML_DIR = os.environ['AP_DAILY_DUO_SEED_YAML_DIR']
 AP_DAILY_DUO_SEED_OUTPUT_DIR = os.environ['AP_DAILY_DUO_SEED_OUTPUT_DIR']
 AP_LOGIN = os.environ['AP_LOGIN']
 
-# Discord OAuth (website login for the daily seed feature)
 DISCORD_CLIENT_ID = os.environ['DISCORD_CLIENT_ID']
 DISCORD_CLIENT_SECRET = os.environ['DISCORD_CLIENT_SECRET']
 DISCORD_OAUTH_REDIRECT_URI = os.environ['DISCORD_OAUTH_REDIRECT_URI']

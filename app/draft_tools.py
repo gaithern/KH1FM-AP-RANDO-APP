@@ -1,10 +1,3 @@
-"""DB access for the KH1 item draft feature (see schema/draft_tables.sql).
-
-Mirrors mysql_tools.py's approach (pymysql, one connection per call) and
-reuses its get_connection/execute/close_connection helpers directly rather
-than duplicating them.
-"""
-
 import secrets
 from collections import Counter
 
@@ -12,15 +5,9 @@ import mysql_tools
 from draft_formats import get_draft_format
 from draft_item_pool import build_pool, validate_categories
 
-# No 0/O/1/I/L - avoids characters that look alike when a player types a
-# code someone else read out loud or shared as a screenshot.
-JOIN_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+JOIN_CODE_LETTERS_THAT_CANNOT_BE_CONFUSED = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 JOIN_CODE_LENGTH = 8
 
-# lobby -> generating (host uploaded a YAML) -> pool_selection (seed is
-# ready, host picks which of its items go in the draft) -> drafting ->
-# sending_items -> complete. A failed generation drops back to lobby with
-# error_message set so the host can fix their YAML and upload again.
 STATUS_LOBBY = "lobby"
 STATUS_GENERATING = "generating"
 STATUS_POOL_SELECTION = "pool_selection"
@@ -29,11 +16,12 @@ STATUS_SENDING_ITEMS = "sending_items"
 STATUS_COMPLETE = "complete"
 STATUS_ERROR = "error"
 
+STATUSES_BEFORE_DRAFT_STARTS = (STATUS_LOBBY, STATUS_GENERATING, STATUS_POOL_SELECTION)
+
+MINIMUM_PLAYERS = 2
+GRID_DRAFT_PLAYERS = 2
 GRID_SIZE = 3
 
-# (line_type, line_index) -> [(row, col), ...] cells that make up that line
-# of a 3x3 grid. Diagonal 0 is top-left to bottom-right, diagonal 1 is
-# top-right to bottom-left.
 GRID_LINES: dict[tuple[str, int], list[tuple[int, int]]] = {
     ("row", 0): [(0, 0), (0, 1), (0, 2)],
     ("row", 1): [(1, 0), (1, 1), (1, 2)],
@@ -47,36 +35,39 @@ GRID_LINES: dict[tuple[str, int], list[tuple[int, int]]] = {
 
 
 def get_player_id(discord_id) -> int | None:
-    conn = mysql_tools.get_connection()
-    rows = mysql_tools.execute(
-        conn, "SELECT player_id FROM players WHERE discord_id = %s", args=(discord_id,), fetch_results=True
-    )
-    mysql_tools.close_connection(conn)
-    return rows[0]["player_id"] if rows else None
+    rows = mysql_tools.fetch_rows("SELECT player_id FROM players WHERE discord_id = %s", args=(discord_id,))
+    if not rows:
+        return None
+    return rows[0]["player_id"]
 
 
-def _generate_join_code() -> str:
-    return "".join(secrets.choice(JOIN_CODE_ALPHABET) for _ in range(JOIN_CODE_LENGTH))
+def generate_join_code() -> str:
+    join_code = ""
+    for position in range(JOIN_CODE_LENGTH):
+        join_code = join_code + secrets.choice(JOIN_CODE_LETTERS_THAT_CANNOT_BE_CONFUSED)
+    return join_code
 
 
 def resolve_join_code(join_code: str) -> int | None:
-    """Public draft games are referenced everywhere outside this module
-    (URLs, API paths) by this random code rather than the sequential
-    game_id, so a low integer can't just be guessed/enumerated."""
-    conn = mysql_tools.get_connection()
+    rows = mysql_tools.fetch_rows("SELECT game_id FROM draft_games WHERE join_code = %s", args=(join_code,))
+    if not rows:
+        return None
+    return rows[0]["game_id"]
+
+
+def join_code_is_taken(connection, join_code: str) -> bool:
     rows = mysql_tools.execute(
-        conn, "SELECT game_id FROM draft_games WHERE join_code = %s", args=(join_code,), fetch_results=True
+        connection, "SELECT 1 FROM draft_games WHERE join_code = %s", args=(join_code,), fetch_results=True
     )
-    mysql_tools.close_connection(conn)
-    return rows[0]["game_id"] if rows else None
+    return len(rows) > 0
 
 
 def create_game(created_by_player_id: int, draft_type: str, max_players: int, item_categories: list[str],
                 picks_per_player: int | None = None, num_grids: int | None = None) -> str:
-    get_draft_format(draft_type)  # raises ValueError if unknown
+    get_draft_format(draft_type)
     validate_categories(item_categories)
     if draft_type == "grid":
-        if max_players != 2:
+        if max_players != GRID_DRAFT_PLAYERS:
             raise ValueError("Grid draft only supports 2 players")
         if not num_grids or num_grids < 1:
             raise ValueError("num_grids must be a positive integer")
@@ -86,15 +77,14 @@ def create_game(created_by_player_id: int, draft_type: str, max_players: int, it
             raise ValueError("picks_per_player must be a positive integer")
         num_grids = None
 
-    conn = mysql_tools.get_connection()
+    connection = mysql_tools.get_connection()
 
-    join_code = _generate_join_code()
-    while mysql_tools.execute(conn, "SELECT 1 FROM draft_games WHERE join_code = %s",
-                               args=(join_code,), fetch_results=True):
-        join_code = _generate_join_code()
+    join_code = generate_join_code()
+    while join_code_is_taken(connection, join_code):
+        join_code = generate_join_code()
 
     mysql_tools.execute(
-        conn,
+        connection,
         """INSERT INTO draft_games
            (created_by_player_id, draft_type, status, max_players, picks_per_player, num_grids,
             item_categories, join_code)
@@ -102,186 +92,205 @@ def create_game(created_by_player_id: int, draft_type: str, max_players: int, it
         args=(created_by_player_id, draft_type, STATUS_LOBBY, max_players, picks_per_player, num_grids,
               ",".join(item_categories), join_code),
     )
-    rows = mysql_tools.execute(conn, "SELECT LAST_INSERT_ID() as game_id", fetch_results=True)
+    rows = mysql_tools.execute(connection, "SELECT LAST_INSERT_ID() as game_id", fetch_results=True)
     game_id = rows[0]["game_id"]
     mysql_tools.execute(
-        conn, "INSERT INTO draft_seats (game_id, seat_number, player_id) VALUES (%s, 1, %s)",
+        connection, "INSERT INTO draft_seats (game_id, seat_number, player_id) VALUES (%s, 1, %s)",
         args=(game_id, created_by_player_id),
     )
-    mysql_tools.close_connection(conn)
+    mysql_tools.close_connection(connection)
     return join_code
 
 
 def get_game(game_id: int) -> dict | None:
-    conn = mysql_tools.get_connection()
-    rows = mysql_tools.execute(conn, "SELECT * FROM draft_games WHERE game_id = %s", args=(game_id,),
-                                fetch_results=True)
-    mysql_tools.close_connection(conn)
-    return rows[0] if rows else None
+    rows = mysql_tools.fetch_rows("SELECT * FROM draft_games WHERE game_id = %s", args=(game_id,))
+    if not rows:
+        return None
+    return rows[0]
 
 
 def get_seats(game_id: int) -> list[dict]:
-    conn = mysql_tools.get_connection()
-    rows = mysql_tools.execute(
-        conn,
+    return mysql_tools.fetch_rows(
         """SELECT ds.seat_number, ds.player_id, p.discord_name, ds.room_link, ds.items_sent_flag
            FROM draft_seats ds JOIN players p ON p.player_id = ds.player_id
            WHERE ds.game_id = %s ORDER BY ds.seat_number""",
-        args=(game_id,), fetch_results=True,
+        args=(game_id,),
     )
-    mysql_tools.close_connection(conn)
-    return rows
 
 
-def get_seat_for_player(game_id: int, player_id: int) -> dict | None:
-    for seat in get_seats(game_id):
+def find_seat_for_player(seats: list[dict], player_id) -> dict | None:
+    for seat in seats:
         if seat["player_id"] == player_id:
             return seat
     return None
+
+
+def get_seat_for_player(game_id: int, player_id: int) -> dict | None:
+    return find_seat_for_player(get_seats(game_id), player_id)
 
 
 def join_game(game_id: int, player_id: int) -> int:
     game = get_game(game_id)
     if game is None:
         raise ValueError("No such draft game")
-    if game["status"] not in (STATUS_LOBBY, STATUS_GENERATING, STATUS_POOL_SELECTION):
+    if game["status"] not in STATUSES_BEFORE_DRAFT_STARTS:
         raise ValueError("This draft game has already started")
     seats = get_seats(game_id)
-    if any(seat["player_id"] == player_id for seat in seats):
+    if find_seat_for_player(seats, player_id) is not None:
         raise ValueError("Already joined this draft game")
     if len(seats) >= game["max_players"]:
         raise ValueError("This draft game is full")
+
     seat_number = len(seats) + 1
-    conn = mysql_tools.get_connection()
-    mysql_tools.execute(
-        conn, "INSERT INTO draft_seats (game_id, seat_number, player_id) VALUES (%s, %s, %s)",
+    mysql_tools.run_statement(
+        "INSERT INTO draft_seats (game_id, seat_number, player_id) VALUES (%s, %s, %s)",
         args=(game_id, seat_number, player_id),
     )
-    mysql_tools.close_connection(conn)
     return seat_number
 
 
 def get_candidates(game_id: int) -> list[dict]:
-    conn = mysql_tools.get_connection()
-    rows = mysql_tools.execute(
-        conn,
+    return mysql_tools.fetch_rows(
         "SELECT item_name, category, quantity FROM draft_candidates WHERE game_id = %s ORDER BY category, item_name",
-        args=(game_id,), fetch_results=True,
+        args=(game_id,),
     )
-    mysql_tools.close_connection(conn)
-    return rows
+
+
+def build_selected_items(candidates: list[dict], selected_item_names: list[str] | None) -> list[tuple[str, str]]:
+    candidate_by_name = {}
+    for candidate in candidates:
+        candidate_by_name[candidate["item_name"]] = candidate
+
+    if selected_item_names is None:
+        selected_item_names = list(candidate_by_name)
+    copies_by_name = Counter(selected_item_names)
+
+    unknown_names = set(copies_by_name) - set(candidate_by_name)
+    if unknown_names:
+        raise ValueError(f"Not in this seed's draftable items: {sorted(unknown_names)}")
+
+    names_with_too_many_copies = []
+    for name, copies in copies_by_name.items():
+        if copies > candidate_by_name[name]["quantity"]:
+            names_with_too_many_copies.append(name)
+    if names_with_too_many_copies:
+        raise ValueError(f"More copies selected than the seed has: {sorted(names_with_too_many_copies)}")
+
+    selected_items = []
+    for name, copies in copies_by_name.items():
+        category = candidate_by_name[name]["category"]
+        for copy_number in range(copies):
+            selected_items.append((name, category))
+    return selected_items
+
+
+def save_grid_pool(connection, game_id: int, num_grids: int, pool_items: list[tuple[str, str]]) -> None:
+    item_index = 0
+    for grid_number in range(num_grids):
+        for row in range(GRID_SIZE):
+            for column in range(GRID_SIZE):
+                item_name, category = pool_items[item_index]
+                item_index = item_index + 1
+                mysql_tools.execute(
+                    connection,
+                    """INSERT INTO draft_pool (game_id, item_name, category, grid_number, grid_row, grid_col)
+                       VALUES (%s, %s, %s, %s, %s, %s)""",
+                    args=(game_id, item_name, category, grid_number, row, column),
+                )
+
+
+def save_plain_pool(connection, game_id: int, pool_items: list[tuple[str, str]]) -> None:
+    for item_name, category in pool_items:
+        mysql_tools.execute(
+            connection,
+            "INSERT INTO draft_pool (game_id, item_name, category) VALUES (%s, %s, %s)",
+            args=(game_id, item_name, category),
+        )
 
 
 def start_game(game_id: int, caller_player_id: int, selected_item_names: list[str] | None = None) -> None:
-    """selected_item_names is the host's pick of which seed items go into
-    the draft; None means one copy of every candidate. A name repeated N
-    times puts N copies in, up to the number the seed actually has."""
     game = get_game(game_id)
     if game is None:
         raise ValueError("No such draft game")
     if game["created_by_player_id"] != caller_player_id:
         raise ValueError("Only the host can start the draft")
-    if game["status"] in (STATUS_LOBBY, STATUS_GENERATING):
+    if game["status"] == STATUS_LOBBY or game["status"] == STATUS_GENERATING:
         raise ValueError("Upload a YAML and wait for the seed to generate before starting")
     if game["status"] != STATUS_POOL_SELECTION:
         raise ValueError("This draft game has already started")
     seats = get_seats(game_id)
-    if len(seats) < 2:
+    if len(seats) < MINIMUM_PLAYERS:
         raise ValueError("Need at least 2 players to start")
 
-    candidates = {c["item_name"]: c for c in get_candidates(game_id)}
-    if selected_item_names is None:
-        selected_item_names = list(candidates)
-    copies_by_name = Counter(selected_item_names)
-    unknown = set(copies_by_name) - set(candidates)
-    if unknown:
-        raise ValueError(f"Not in this seed's draftable items: {sorted(unknown)}")
-    too_many = sorted(name for name, copies in copies_by_name.items() if copies > candidates[name]["quantity"])
-    if too_many:
-        raise ValueError(f"More copies selected than the seed has: {too_many}")
-    selected = [(name, candidates[name]["category"])
-                for name, copies in copies_by_name.items() for _ in range(copies)]
-    pool_items = build_pool(selected, total_items(game, len(seats)))
+    selected_items = build_selected_items(get_candidates(game_id), selected_item_names)
+    pool_items = build_pool(selected_items, total_items(game, len(seats)))
 
-    conn = mysql_tools.get_connection()
+    connection = mysql_tools.get_connection()
     if game["draft_type"] == "grid":
-        item_iter = iter(pool_items)
-        for grid_number in range(game["num_grids"]):
-            for row in range(GRID_SIZE):
-                for col in range(GRID_SIZE):
-                    item_name, category = next(item_iter)
-                    mysql_tools.execute(
-                        conn,
-                        """INSERT INTO draft_pool (game_id, item_name, category, grid_number, grid_row, grid_col)
-                           VALUES (%s, %s, %s, %s, %s, %s)""",
-                        args=(game_id, item_name, category, grid_number, row, col),
-                    )
+        save_grid_pool(connection, game_id, game["num_grids"], pool_items)
     else:
-        for item_name, category in pool_items:
-            mysql_tools.execute(conn, "INSERT INTO draft_pool (game_id, item_name, category) VALUES (%s, %s, %s)",
-                                 args=(game_id, item_name, category))
-    mysql_tools.execute(conn, "UPDATE draft_games SET status = %s WHERE game_id = %s",
-                         args=(STATUS_DRAFTING, game_id))
-    mysql_tools.close_connection(conn)
+        save_plain_pool(connection, game_id, pool_items)
+    mysql_tools.execute(
+        connection, "UPDATE draft_games SET status = %s WHERE game_id = %s",
+        args=(STATUS_DRAFTING, game_id),
+    )
+    mysql_tools.close_connection(connection)
 
 
-def total_items(game: dict, num_seats: int) -> int:
-    """Size of the full item pool for this game - snake draft splits it
-    evenly per seat, grid draft is always num_grids grids of 9."""
+def total_items(game: dict, number_of_seats: int) -> int:
     if game["draft_type"] == "grid":
         return game["num_grids"] * GRID_SIZE * GRID_SIZE
-    return num_seats * game["picks_per_player"]
+    return number_of_seats * game["picks_per_player"]
 
 
 def get_pool(game_id: int) -> list[dict]:
-    conn = mysql_tools.get_connection()
-    rows = mysql_tools.execute(
-        conn,
+    return mysql_tools.fetch_rows(
         "SELECT item_name, category FROM draft_pool WHERE game_id = %s AND taken_flag = 'N' ORDER BY item_name",
-        args=(game_id,), fetch_results=True,
+        args=(game_id,),
     )
-    mysql_tools.close_connection(conn)
-    return rows
 
 
 def get_grid(game_id: int) -> list[dict]:
-    """Every cell of every grid for this game, taken or not - the grid draft
-    UI needs to show gaps left by already-claimed cells, unlike the plain
-    item-pool UI which only ever lists what's still available."""
-    conn = mysql_tools.get_connection()
-    rows = mysql_tools.execute(
-        conn,
+    return mysql_tools.fetch_rows(
         """SELECT grid_number, grid_row, grid_col, item_name, category, taken_flag
            FROM draft_pool WHERE game_id = %s ORDER BY grid_number, grid_row, grid_col""",
-        args=(game_id,), fetch_results=True,
+        args=(game_id,),
     )
-    mysql_tools.close_connection(conn)
-    return rows
 
 
 def get_picks(game_id: int) -> list[dict]:
-    conn = mysql_tools.get_connection()
-    rows = mysql_tools.execute(
-        conn,
+    return mysql_tools.fetch_rows(
         """SELECT pick_number, seat_number, item_name, turn_number FROM draft_picks
            WHERE game_id = %s ORDER BY pick_number""",
-        args=(game_id,), fetch_results=True,
+        args=(game_id,),
     )
-    mysql_tools.close_connection(conn)
-    return rows
 
 
-def _seat_on_the_clock_or_raise(game: dict, seats: list[dict], picks: list[dict], seat: dict) -> None:
+def raise_if_not_seats_turn(game: dict, seats: list[dict], picks: list[dict], seat: dict) -> None:
     draft_format = get_draft_format(game["draft_type"])
-    on_the_clock = draft_format.seat_on_the_clock(len(seats), picks, total_items(game, len(seats)))
-    if on_the_clock is None or seats[on_the_clock]["seat_number"] != seat["seat_number"]:
+    pool_size = total_items(game, len(seats))
+    on_the_clock_index = draft_format.seat_on_the_clock(len(seats), picks, pool_size)
+    if on_the_clock_index is None:
+        raise ValueError("It is not your turn")
+    if seats[on_the_clock_index]["seat_number"] != seat["seat_number"]:
         raise ValueError("It is not your turn")
 
 
-def _finish_draft_if_complete(conn, game_id: int, picks_now: int, pool_size: int) -> None:
-    if picks_now >= pool_size:
-        mysql_tools.execute(conn, "UPDATE draft_games SET status = %s WHERE game_id = %s",
-                             args=(STATUS_SENDING_ITEMS, game_id))
+def finish_draft_if_complete(connection, game_id: int, picks_made: int, pool_size: int) -> None:
+    if picks_made >= pool_size:
+        mysql_tools.execute(
+            connection, "UPDATE draft_games SET status = %s WHERE game_id = %s",
+            args=(STATUS_SENDING_ITEMS, game_id),
+        )
+
+
+def insert_pick(connection, game_id: int, pick_number: int, seat_number: int, item_name: str,
+                turn_number: int) -> None:
+    mysql_tools.execute(
+        connection,
+        "INSERT INTO draft_picks (game_id, pick_number, seat_number, item_name, turn_number) VALUES (%s, %s, %s, %s, %s)",
+        args=(game_id, pick_number, seat_number, item_name, turn_number),
+    )
 
 
 def record_pick(game_id: int, caller_player_id: int, item_name: str) -> None:
@@ -298,33 +307,40 @@ def record_pick(game_id: int, caller_player_id: int, item_name: str) -> None:
 
     seats = get_seats(game_id)
     picks = get_picks(game_id)
-    _seat_on_the_clock_or_raise(game, seats, picks, seat)
+    raise_if_not_seats_turn(game, seats, picks, seat)
 
-    conn = mysql_tools.get_connection()
-    # Claim one specific untaken row by pool_id, not by item_name - the pool
-    # has held duplicate item names in the past, so updating by item_name
-    # alone could mark every copy of that item taken instead of just this one.
-    available_rows = mysql_tools.execute(
-        conn, "SELECT pool_id FROM draft_pool WHERE game_id = %s AND item_name = %s AND taken_flag = 'N' LIMIT 1",
+    connection = mysql_tools.get_connection()
+    one_untaken_copy = mysql_tools.execute(
+        connection,
+        "SELECT pool_id FROM draft_pool WHERE game_id = %s AND item_name = %s AND taken_flag = 'N' LIMIT 1",
         args=(game_id, item_name), fetch_results=True,
     )
-    if not available_rows:
-        mysql_tools.close_connection(conn)
+    if not one_untaken_copy:
+        mysql_tools.close_connection(connection)
         raise ValueError("That item is not available")
-    pool_id = available_rows[0]["pool_id"]
+    pool_id = one_untaken_copy[0]["pool_id"]
 
-    next_pick_number = len(picks) + 1
+    pick_number = len(picks) + 1
+    turn_number = pick_number
+    insert_pick(connection, game_id, pick_number, seat["seat_number"], item_name, turn_number)
     mysql_tools.execute(
-        conn,
-        "INSERT INTO draft_picks (game_id, pick_number, seat_number, item_name, turn_number) VALUES (%s, %s, %s, %s, %s)",
-        args=(game_id, next_pick_number, seat["seat_number"], item_name, next_pick_number),
-    )
-    mysql_tools.execute(
-        conn, "UPDATE draft_pool SET taken_flag = 'Y' WHERE pool_id = %s",
+        connection, "UPDATE draft_pool SET taken_flag = 'Y' WHERE pool_id = %s",
         args=(pool_id,),
     )
-    _finish_draft_if_complete(conn, game_id, next_pick_number, total_items(game, len(seats)))
-    mysql_tools.close_connection(conn)
+    finish_draft_if_complete(connection, game_id, pick_number, total_items(game, len(seats)))
+    mysql_tools.close_connection(connection)
+
+
+def group_untaken_cells_by_grid(grid_cells: list[dict]) -> dict[int, list[dict]]:
+    untaken_cells_by_grid = {}
+    for cell in grid_cells:
+        if cell["taken_flag"] != "N":
+            continue
+        grid_number = cell["grid_number"]
+        if grid_number not in untaken_cells_by_grid:
+            untaken_cells_by_grid[grid_number] = []
+        untaken_cells_by_grid[grid_number].append(cell)
+    return untaken_cells_by_grid
 
 
 def record_grid_pick(game_id: int, caller_player_id: int, grid_number: int, line_type: str, line_index: int) -> None:
@@ -343,119 +359,110 @@ def record_grid_pick(game_id: int, caller_player_id: int, grid_number: int, line
 
     seats = get_seats(game_id)
     picks = get_picks(game_id)
-    _seat_on_the_clock_or_raise(game, seats, picks, seat)
+    raise_if_not_seats_turn(game, seats, picks, seat)
 
-    grid_cells = get_grid(game_id)
-    untaken_by_grid: dict[int, list[dict]] = {}
-    for cell in grid_cells:
-        if cell["taken_flag"] == "N":
-            untaken_by_grid.setdefault(cell["grid_number"], []).append(cell)
-    current_grid_number = min(untaken_by_grid) if untaken_by_grid else None
-    if current_grid_number is None:
+    untaken_cells_by_grid = group_untaken_cells_by_grid(get_grid(game_id))
+    if not untaken_cells_by_grid:
         raise ValueError("This draft game is not currently drafting")
+    current_grid_number = min(untaken_cells_by_grid)
     if grid_number != current_grid_number:
         raise ValueError("That grid is not currently being drafted")
 
-    line_positions = set(GRID_LINES[(line_type, line_index)])
-    cells_to_take = [cell for cell in untaken_by_grid[grid_number]
-                      if (cell["grid_row"], cell["grid_col"]) in line_positions]
+    line_positions = GRID_LINES[(line_type, line_index)]
+    cells_to_take = []
+    for cell in untaken_cells_by_grid[grid_number]:
+        cell_position = (cell["grid_row"], cell["grid_col"])
+        if cell_position in line_positions:
+            cells_to_take.append(cell)
     if not cells_to_take:
         raise ValueError("That line has no cards left to take")
 
-    conn = mysql_tools.get_connection()
+    connection = mysql_tools.get_connection()
     turn_number = len(picks) + 1
-    next_pick_number = len(picks) + 1
+    pick_number = len(picks)
     for cell in cells_to_take:
+        pick_number = pick_number + 1
         mysql_tools.execute(
-            conn,
+            connection,
             """UPDATE draft_pool SET taken_flag = 'Y'
                WHERE game_id = %s AND grid_number = %s AND grid_row = %s AND grid_col = %s""",
             args=(game_id, grid_number, cell["grid_row"], cell["grid_col"]),
         )
-        mysql_tools.execute(
-            conn,
-            "INSERT INTO draft_picks (game_id, pick_number, seat_number, item_name, turn_number) VALUES (%s, %s, %s, %s, %s)",
-            args=(game_id, next_pick_number, seat["seat_number"], cell["item_name"], turn_number),
-        )
-        next_pick_number += 1
-    _finish_draft_if_complete(conn, game_id, next_pick_number - 1, total_items(game, len(seats)))
-    mysql_tools.close_connection(conn)
+        insert_pick(connection, game_id, pick_number, seat["seat_number"], cell["item_name"], turn_number)
+    finish_draft_if_complete(connection, game_id, pick_number, total_items(game, len(seats)))
+    mysql_tools.close_connection(connection)
 
 
 def set_error(game_id: int, message: str) -> None:
-    conn = mysql_tools.get_connection()
-    mysql_tools.execute(conn, "UPDATE draft_games SET status = %s, error_message = %s WHERE game_id = %s",
-                         args=(STATUS_ERROR, message, game_id))
-    mysql_tools.close_connection(conn)
+    mysql_tools.run_statement(
+        "UPDATE draft_games SET status = %s, error_message = %s WHERE game_id = %s",
+        args=(STATUS_ERROR, message, game_id),
+    )
 
 
 def start_generation(game_id: int, caller_player_id: int, yaml_path: str) -> None:
-    """Allowed again from pool_selection so the host can re-roll with a
-    different YAML before the draft starts - the old candidates are
-    dropped along with the old seed."""
     game = get_game(game_id)
     if game is None:
         raise ValueError("No such draft game")
     if game["created_by_player_id"] != caller_player_id:
         raise ValueError("Only the host can upload settings for this draft game")
-    if game["status"] not in (STATUS_LOBBY, STATUS_POOL_SELECTION):
+    if game["status"] != STATUS_LOBBY and game["status"] != STATUS_POOL_SELECTION:
         raise ValueError("Settings can only be uploaded before the draft starts")
-    conn = mysql_tools.get_connection()
-    mysql_tools.execute(conn, "DELETE FROM draft_candidates WHERE game_id = %s", args=(game_id,))
+
+    connection = mysql_tools.get_connection()
+    mysql_tools.execute(connection, "DELETE FROM draft_candidates WHERE game_id = %s", args=(game_id,))
     mysql_tools.execute(
-        conn,
+        connection,
         """UPDATE draft_games SET status = %s, seed_zip_path = %s, error_message = NULL,
            server_password = NULL, seed_link = NULL, slot_name = NULL WHERE game_id = %s""",
         args=(STATUS_GENERATING, yaml_path, game_id),
     )
-    mysql_tools.close_connection(conn)
+    mysql_tools.close_connection(connection)
 
 
 def set_generation_result(game_id: int, server_password: str, seed_link: str, slot_name: str,
                           candidates: list[tuple[str, str, int]]) -> None:
-    # slot_name is the resolved name from the generated multiworld, not a
-    # text-parse of the uploaded YAML - see _run_draft_generate in
-    # flask_app.py for why (template placeholders like "Player{number}").
-    conn = mysql_tools.get_connection()
+    connection = mysql_tools.get_connection()
     for item_name, category, quantity in candidates:
         mysql_tools.execute(
-            conn, "INSERT INTO draft_candidates (game_id, item_name, category, quantity) VALUES (%s, %s, %s, %s)",
+            connection,
+            "INSERT INTO draft_candidates (game_id, item_name, category, quantity) VALUES (%s, %s, %s, %s)",
             args=(game_id, item_name, category, quantity),
         )
     mysql_tools.execute(
-        conn,
+        connection,
         "UPDATE draft_games SET status = %s, server_password = %s, seed_link = %s, slot_name = %s WHERE game_id = %s",
         args=(STATUS_POOL_SELECTION, server_password, seed_link, slot_name, game_id),
     )
-    mysql_tools.close_connection(conn)
+    mysql_tools.close_connection(connection)
 
 
 def set_generation_failed(game_id: int, message: str) -> None:
-    conn = mysql_tools.get_connection()
-    mysql_tools.execute(conn, "UPDATE draft_games SET status = %s, error_message = %s WHERE game_id = %s",
-                         args=(STATUS_LOBBY, message, game_id))
-    mysql_tools.close_connection(conn)
+    mysql_tools.run_statement(
+        "UPDATE draft_games SET status = %s, error_message = %s WHERE game_id = %s",
+        args=(STATUS_LOBBY, message, game_id),
+    )
 
 
 def set_seat_room_link(game_id: int, seat_number: int, room_link: str) -> None:
-    conn = mysql_tools.get_connection()
-    mysql_tools.execute(
-        conn, "UPDATE draft_seats SET room_link = %s WHERE game_id = %s AND seat_number = %s",
+    mysql_tools.run_statement(
+        "UPDATE draft_seats SET room_link = %s WHERE game_id = %s AND seat_number = %s",
         args=(room_link, game_id, seat_number),
     )
-    mysql_tools.close_connection(conn)
 
 
 def set_seat_items_sent(game_id: int, seat_number: int) -> None:
-    conn = mysql_tools.get_connection()
-    mysql_tools.execute(
-        conn, "UPDATE draft_seats SET items_sent_flag = 'Y' WHERE game_id = %s AND seat_number = %s",
+    mysql_tools.run_statement(
+        "UPDATE draft_seats SET items_sent_flag = 'Y' WHERE game_id = %s AND seat_number = %s",
         args=(game_id, seat_number),
     )
-    mysql_tools.close_connection(conn)
-    seats = get_seats(game_id)
-    if all(seat["items_sent_flag"] == "Y" for seat in seats):
-        conn = mysql_tools.get_connection()
-        mysql_tools.execute(conn, "UPDATE draft_games SET status = %s WHERE game_id = %s",
-                             args=(STATUS_COMPLETE, game_id))
-        mysql_tools.close_connection(conn)
+
+    every_seat_has_items = True
+    for seat in get_seats(game_id):
+        if seat["items_sent_flag"] != "Y":
+            every_seat_has_items = False
+    if every_seat_has_items:
+        mysql_tools.run_statement(
+            "UPDATE draft_games SET status = %s WHERE game_id = %s",
+            args=(STATUS_COMPLETE, game_id),
+        )

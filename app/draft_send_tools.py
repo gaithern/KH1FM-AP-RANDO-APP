@@ -1,34 +1,18 @@
-"""Delivers drafted items into a player's own live AP room.
-
-Connects to a room as the room's (only) slot using CommonContext directly
-- no subprocess/stdin piping needed, unlike the CLI-driven approach the
-sibling Discord-Card-Game-Draft-Bot project uses. `!admin` commands are
-plain `Say` packets (confirmed against MultiServer.py's _cmd_admin), so a
-minimal headless client modeled on CommonClient.py's own
-run_as_textclient()/TextContext is enough.
-
-CommonClient is imported lazily inside send_drafted_items() rather than at
-module load time - it pulls in MultiServer, the full worlds registry, and
-a ModuleUpdate.update() re-scan, which is exactly the startup cost
-ap_tools.generate() already avoids by lazily importing Main/Generate. This
-module used to import CommonClient at the top, which combined with
-draft_item_pool's top-level worlds import, pushed Flask's own startup past
-PythonAnywhere's reload timeout ("slow_startup_error").
-"""
-
 import asyncio
-import collections
+from collections import Counter
 
 CONNECT_TIMEOUT_SECONDS = 30
+RECEIVE_ALL_ITEMS = 0b111
+ANY_GAME = ""
 
 
-def _build_admin_context_class():
+def build_admin_context_class():
     from CommonClient import CommonContext
 
-    class _AdminSendContext(CommonContext):
+    class AdminSendContext(CommonContext):
         tags = CommonContext.tags | {"TextOnly"}
-        game = ""  # empty matches any game (server negotiates), same as run_as_textclient
-        items_handling = 0b111
+        game = ANY_GAME
+        items_handling = RECEIVE_ALL_ITEMS
         want_slot_data = False
 
         def __init__(self, server_address: str, slot_name: str):
@@ -38,55 +22,59 @@ def _build_admin_context_class():
             self.connection_error: str | None = None
 
         async def server_auth(self, password_requested: bool = False):
-            await self.send_connect(game="")
+            await self.send_connect(game=ANY_GAME)
 
         def on_package(self, cmd: str, args: dict):
             if cmd == "ConnectionRefused":
                 self.connection_error = f"server refused the connection: {args.get('errors')}"
-            if cmd in ("Connected", "ConnectionRefused"):
+            if cmd == "Connected" or cmd == "ConnectionRefused":
                 self.connected_event.set()
 
         def handle_connection_loss(self, msg: str) -> None:
-            # Called from server_loop's except blocks for transport-level failures
-            # (refused/invalid URI/timeout/etc.) that never reach the AP protocol
-            # handshake, so on_package's cmd-based branches above never fire.
             self.connection_error = msg
             super().handle_connection_loss(msg)
 
-    return _AdminSendContext
+    return AdminSendContext
+
+
+async def say(context, text):
+    await context.send_msgs([{"cmd": "Say", "text": text}])
 
 
 async def send_drafted_items(server_address: str, slot_name: str, server_password: str,
-                              item_names: list[str]) -> None:
-    """Connects to the room at server_address as slot_name, logs in as admin
-    using server_password, and grants each drafted item via !admin /send_multiple.
-    Raises RuntimeError, with a specific reason, if the connection or admin
-    login doesn't succeed."""
+                             item_names: list[str]) -> None:
     from CommonClient import server_loop
 
-    AdminSendContext = _build_admin_context_class()
-    ctx = AdminSendContext(server_address, slot_name)
-    ctx.server_task = asyncio.create_task(server_loop(ctx), name="draft admin server loop")
+    AdminSendContext = build_admin_context_class()
+    context = AdminSendContext(server_address, slot_name)
+    context.server_task = asyncio.create_task(server_loop(context), name="draft admin server loop")
     try:
-        connected_wait = asyncio.ensure_future(ctx.connected_event.wait())
-        await asyncio.wait([ctx.server_task, connected_wait], timeout=CONNECT_TIMEOUT_SECONDS,
-                           return_when=asyncio.FIRST_COMPLETED)
-        if not ctx.connected_event.is_set():
-            connected_wait.cancel()
-            reason = ctx.connection_error or f"no response within {CONNECT_TIMEOUT_SECONDS}s"
+        wait_for_connection = asyncio.ensure_future(context.connected_event.wait())
+        await asyncio.wait(
+            [context.server_task, wait_for_connection],
+            timeout=CONNECT_TIMEOUT_SECONDS,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        if not context.connected_event.is_set():
+            wait_for_connection.cancel()
+            reason = context.connection_error
+            if not reason:
+                reason = f"no response within {CONNECT_TIMEOUT_SECONDS}s"
             raise RuntimeError(f"Could not connect to {server_address} as slot '{slot_name}': {reason}")
-        if ctx.slot is None:
-            reason = ctx.connection_error or "unknown reason (check the slot name matches the YAML's name: exactly)"
+
+        if context.slot is None:
+            reason = context.connection_error
+            if not reason:
+                reason = "unknown reason (check the slot name matches the YAML's name: exactly)"
             raise RuntimeError(f"Connected to {server_address} but slot '{slot_name}' was rejected: {reason}")
 
-        await ctx.send_msgs([{"cmd": "Say", "text": f"!admin login {server_password}"}])
+        await say(context, f"!admin login {server_password}")
         await asyncio.sleep(1)
 
-        counts = collections.Counter(item_names)
-        for item_name, count in counts.items():
-            await ctx.send_msgs(
-                [{"cmd": "Say", "text": f"!admin /send_multiple {count} {slot_name} {item_name}"}]
-            )
+        copies_by_item_name = Counter(item_names)
+        for item_name, copies in copies_by_item_name.items():
+            await say(context, f"!admin /send_multiple {copies} {slot_name} {item_name}")
             await asyncio.sleep(0.5)
     finally:
-        await ctx.shutdown()
+        await context.shutdown()
