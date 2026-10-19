@@ -7,6 +7,7 @@ import urllib.parse
 import requests
 from flask import Flask, request, jsonify, send_file, make_response, redirect
 from flask_cors import CORS
+from werkzeug.utils import secure_filename
 
 import ap_tools
 import draft_formats
@@ -61,7 +62,25 @@ def get_uploaded_file_error():
         return 'No file part in the request'
     if request.files['file'].filename == '':
         return 'No selected file'
+    if get_safe_upload_name() == '':
+        return 'Invalid file name'
     return None
+
+
+def get_safe_upload_name():
+    uploaded_name = request.files['file'].filename
+    return secure_filename(uploaded_name)
+
+
+def get_player_folder_name(discord_id):
+    if discord_id is None:
+        return 'None'
+    digits = discord_id
+    if digits.startswith('-'):
+        digits = digits[1:]
+    if not digits.isdigit():
+        return None
+    return discord_id
 
 
 def generate_and_send_mod(player_folder):
@@ -89,9 +108,13 @@ def generate():
         return jsonify({'error': file_error}), 400
     file = request.files['file']
 
-    player_folder = f'{YAMLS_ROOT}/{discord_id}/'
+    player_folder_name = get_player_folder_name(discord_id)
+    if player_folder_name is None:
+        return jsonify({'error': 'Invalid discord_id'}), 400
+
+    player_folder = f'{YAMLS_ROOT}/{player_folder_name}/'
     ap_tools.create_or_empty_folder(player_folder)
-    yaml_path = os.path.join(player_folder, file.filename)
+    yaml_path = os.path.join(player_folder, get_safe_upload_name())
     try:
         file.save(yaml_path)
     except Exception as error:
@@ -449,7 +472,7 @@ def draft_upload_yaml(join_code):
 
     game_folder = f'{DRAFT_YAMLS_ROOT}/{game_id}/'
     ap_tools.create_or_empty_folder(game_folder)
-    yaml_path = os.path.join(game_folder, file.filename)
+    yaml_path = os.path.join(game_folder, get_safe_upload_name())
     file.save(yaml_path)
 
     try:
