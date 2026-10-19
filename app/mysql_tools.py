@@ -4,7 +4,7 @@ import ap_tools
 import html_tools
 from envr import DB_HOST, DB_USER, DB_PASSWORD, DB_NAME
 
-TODAY_IN_NEW_YORK_SQL = "DATE_FORMAT(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', 'America/New_York'), '%Y-%m-%d')"
+TODAY_IN_NEW_YORK_SQL = "DATE_FORMAT(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', 'America/New_York'), '%%Y-%%m-%%d')"
 
 RANK_EMOJIS = {
     1: "🥇",
@@ -47,13 +47,11 @@ def close_connection(connection, rollback=False):
 
 
 def execute(connection, sql, args=None, fetch_results=False):
+    if args is None:
+        args = ()
     with connection.cursor() as cursor:
-        if args:
-            print(f"SQL statement to execute: {sql} with args {args}")
-            cursor.execute(sql, args)
-        else:
-            print(f"SQL statement to execute: {sql}")
-            cursor.execute(sql)
+        print(f"SQL statement to execute: {sql} with args {args}")
+        cursor.execute(sql, args)
 
         if not fetch_results:
             return []
@@ -123,10 +121,10 @@ def get_players_daily_seed(discord_id):
         FROM player_seeds ps
         JOIN players p
         ON p.player_id = ps.player_id
-        AND p.discord_id = {discord_id}
+        AND p.discord_id = %s
         JOIN daily_seeds ds
         on ds.seed_id = ps.seed_id
-        AND ds.SEED_DATE = {TODAY_IN_NEW_YORK_SQL};""")
+        AND ds.SEED_DATE = {TODAY_IN_NEW_YORK_SQL};""", args=(discord_id,))
     if len(rows) > 0:
         return rows[0]["room_link"], rows[0]["seed_zip_path"]
 
@@ -142,12 +140,12 @@ def get_players_daily_seed(discord_id):
         )
         VALUES
         (
-            (SELECT PLAYER_ID FROM players WHERE discord_id = {discord_id}),
+            (SELECT PLAYER_ID FROM players WHERE discord_id = %s),
             (SELECT SEED_ID FROM daily_seeds WHERE SEED_DATE = {TODAY_IN_NEW_YORK_SQL}),
-            '{room_link}',
+            %s,
             null,
             null
-        );""")
+        );""", args=(discord_id, room_link))
     return room_link, seed_zip_path
 
 
@@ -159,10 +157,10 @@ def get_players_daily_seed_room_link(discord_id):
     FROM player_seeds ps
     JOIN players p
     ON ps.player_id = p.player_id
-    AND p.discord_id = {discord_id}
+    AND p.discord_id = %s
     JOIN daily_seeds ds
     ON ps.seed_id = ds.seed_id
-    AND ds.SEED_DATE = {TODAY_IN_NEW_YORK_SQL};""")
+    AND ds.SEED_DATE = {TODAY_IN_NEW_YORK_SQL};""", args=(discord_id,))
     if len(rows) == 0:
         return None, None
     return rows[0]["seed_id"], rows[0]["room_link"]
@@ -175,12 +173,12 @@ def daily_seed_already_complete(discord_id):
     FROM player_seeds ps
     JOIN players p
     ON ps.player_id = p.player_id
-    AND p.discord_id = {discord_id}
+    AND p.discord_id = %s
     JOIN daily_seeds ds
     ON ps.seed_id = ds.seed_id
     AND ds.SEED_DATE = {TODAY_IN_NEW_YORK_SQL}
     WHERE ps.complete_time is not null;
-    """)
+    """, args=(discord_id,))
     return len(rows) > 0
 
 
@@ -191,20 +189,19 @@ def daily_seed_started(discord_id):
     FROM player_seeds ps
     JOIN players p
     ON ps.player_id = p.player_id
-    AND p.discord_id = {discord_id}
+    AND p.discord_id = %s
     JOIN daily_seeds ds
     ON ps.seed_id = ds.seed_id
     AND ds.SEED_DATE = {TODAY_IN_NEW_YORK_SQL};
-    """)
+    """, args=(discord_id,))
     return len(rows) > 0
 
 
 def save_run_times(table_name, seed_id, room_link, start_time, end_time):
-    run_statement(f"""UPDATE {table_name}
-            SET start_time = STR_TO_DATE('{str(start_time)}','%Y-%m-%d %H:%i:%s.%f')
-            , complete_time = STR_TO_DATE('{str(end_time)}','%Y-%m-%d %H:%i:%s.%f')
-            WHERE seed_id = {seed_id}
-            and room_link = '{room_link}';""")
+    run_statement(
+        f"UPDATE {table_name} SET start_time = %s, complete_time = %s WHERE seed_id = %s and room_link = %s;",
+        args=(start_time, end_time, seed_id, room_link),
+    )
 
 
 def check_daily_seed_complete(discord_id):
@@ -250,12 +247,12 @@ def daily_duo_get_current_team(discord_id):
     rows = fetch_rows(f"""select
                     coalesce(ddt1.team_id, ddt2.team_id) as team_id,
                     p.discord_name
-                from (select * from players where discord_id = {discord_id}) p
+                from (select * from players where discord_id = %s) p
                 left join (select * from daily_duo_teams where team_up_date = {TODAY_IN_NEW_YORK_SQL}) ddt1
                 on p.player_id = ddt1.player_id_1
                 left join (select * from daily_duo_teams where team_up_date = {TODAY_IN_NEW_YORK_SQL}) ddt2
                 on p.player_id = ddt2.player_id_2
-                where coalesce(ddt1.team_id, ddt2.team_id) is not null""")
+                where coalesce(ddt1.team_id, ddt2.team_id) is not null""", args=(discord_id,))
     if len(rows) == 0:
         return None
     return rows[0]["team_id"]
@@ -266,10 +263,10 @@ def daily_duo_register_team(discord_id_1, discord_id_2):
                 (player_id_1, player_id_2, team_up_date)
                 values
                 (
-                    (select player_id from players where discord_id = {discord_id_1}),
-                    (select player_id from players where discord_id = {discord_id_2}),
+                    (select player_id from players where discord_id = %s),
+                    (select player_id from players where discord_id = %s),
                     {TODAY_IN_NEW_YORK_SQL}
-                )""")
+                )""", args=(discord_id_1, discord_id_2))
 
 
 def daily_duo_team_up(discord_id_1, discord_name_1, discord_id_2, discord_name_2):
@@ -302,10 +299,10 @@ def get_teams_daily_seed(discord_id):
         FROM duo_seeds ds
         JOIN daily_duo_teams ddt
         ON ddt.team_id = ds.team_id
-        AND ddt.team_id = {team_id}
+        AND ddt.team_id = %s
         JOIN daily_duo_seeds dds
         on ds.seed_id = dds.seed_id
-        AND dds.SEED_DATE = {TODAY_IN_NEW_YORK_SQL};""")
+        AND dds.SEED_DATE = {TODAY_IN_NEW_YORK_SQL};""", args=(team_id,))
     if len(rows) > 0:
         room_link = rows[0]["room_link"]
     else:
@@ -321,12 +318,12 @@ def get_teams_daily_seed(discord_id):
             )
             VALUES
             (
-                {team_id},
+                %s,
                 (SELECT SEED_ID FROM daily_duo_seeds WHERE SEED_DATE = {TODAY_IN_NEW_YORK_SQL}),
-                '{room_link}',
+                %s,
                 null,
                 null
-            );""")
+            );""", args=(team_id, room_link))
     return f"Seed link for Team {team_id} (<@{discord_id}>'s team):\n{room_link}"
 
 
@@ -378,8 +375,8 @@ def daily_duo_seed_started(team_id):
     JOIN daily_duo_seeds dds
     ON ds.seed_id = dds.seed_id
     AND dds.SEED_DATE = {TODAY_IN_NEW_YORK_SQL}
-    WHERE ds.team_id = {team_id}
-    """)
+    WHERE ds.team_id = %s
+    """, args=(team_id,))
     return len(rows) > 0
 
 
@@ -392,8 +389,8 @@ def daily_duo_seed_already_complete(team_id):
     ON ds.seed_id = dds.seed_id
     AND dds.SEED_DATE = {TODAY_IN_NEW_YORK_SQL}
     WHERE ds.complete_time is not null
-    AND ds.team_id = {team_id}
-    """)
+    AND ds.team_id = %s
+    """, args=(team_id,))
     return len(rows) > 0
 
 
@@ -406,7 +403,7 @@ def get_teams_daily_seed_room_link(team_id):
     JOIN daily_duo_seeds dds
     ON ds.seed_id = dds.seed_id
     AND dds.SEED_DATE = {TODAY_IN_NEW_YORK_SQL}
-    AND ds.team_id = {team_id};""")
+    AND ds.team_id = %s;""", args=(team_id,))
     if len(rows) == 0:
         return None, None
     return rows[0]["seed_id"], rows[0]["room_link"]
