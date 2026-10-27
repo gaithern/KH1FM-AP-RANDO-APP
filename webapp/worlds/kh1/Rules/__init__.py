@@ -39,15 +39,13 @@ def build_area_rules(kh1world) -> dict[str, Rule]:
 
 
 def build_level_rules(kh1world) -> dict[str, Rule]:
-    level_locations = kh1world.get_level_locations()
+    level_locations = kh1world.get_level_check_locations()
     location_rules: dict[str, Rule] = {}
     for level in range(2, 101):
         worlds_required = min((level - 1) // 10 * 2, 8)
-        rule = has_x_worlds_rule(worlds_required)
-        for slot in ("Slot 1", "Slot 2"):
-            location_name = f"Level {level:03} ({slot})"
-            if location_name in level_locations:
-                location_rules[location_name] = rule
+        location_name = f"Level {level:03}"
+        if location_name in level_locations:
+            location_rules[location_name] = has_x_worlds_rule(worlds_required)
     return location_rules
 
 
@@ -72,11 +70,11 @@ def add_chest_rules(location_rules: dict[str, Rule]) -> None:
         add_location_rule(location_rules, location_name, chest_keyblade)
 
 
-def add_synth_item_rules(kh1world) -> None:
+def add_regular_items_only_rules(kh1world, location_group: str) -> None:
     if kh1world.options.remote_items.current_key != "off":
         return
     player = kh1world.player
-    for location_name in get_locations_by_group("Synth"):
+    for location_name in get_locations_by_group(location_group):
         add_item_rule(kh1world.get_location(location_name),
                       lambda item: item.player != player or item.name in item_name_groups["Items"])
 
@@ -115,6 +113,7 @@ def set_rules(kh1world) -> None:
         kh1world.set_rule(kh1world.get_entrance(name), rule)
     for name, rule in location_rules.items():
         kh1world.set_rule(kh1world.get_location(name), rule)
-    add_synth_item_rules(kh1world)
+    add_regular_items_only_rules(kh1world, "Synth")
+    add_regular_items_only_rules(kh1world, "Rare Heartless")
 
     kh1world.multiworld.completion_condition[kh1world.player] = lambda state: state.has("Victory", kh1world.player)
