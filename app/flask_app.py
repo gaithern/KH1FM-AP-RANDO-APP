@@ -72,8 +72,8 @@ def get_safe_upload_name():
     return secure_filename(uploaded_name)
 
 
-def generate_and_send_mod(player_folder):
-    generated_zip_path, multiworld = ap_tools.generate(player_folder)
+def generate_and_send_mod(player_folder, server_option_overrides):
+    generated_zip_path, multiworld = ap_tools.generate(player_folder, server_option_overrides)
     unzipped_folder_path = generated_zip_path[:-len('.zip')]
     seed_link = ap_tools.get_seed_link(generated_zip_path)
     inner_zip = ap_tools.get_inner_zip_name(generated_zip_path)
@@ -96,15 +96,21 @@ def generate():
         return jsonify({'error': file_error}), 400
     file = request.files['file']
 
+    ap_tools.set_root()
+    try:
+        server_option_overrides = options_tools.read_server_options(request.form)
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+
     request_folder = f'{YAMLS_ROOT}/{secrets.token_hex(16)}/'
     ap_tools.create_or_empty_folder(request_folder)
     try:
-        return save_yaml_and_generate(file, request_folder)
+        return save_yaml_and_generate(file, request_folder, server_option_overrides)
     finally:
         ap_tools.remove_folder_and_contents(request_folder)
 
 
-def save_yaml_and_generate(file, request_folder):
+def save_yaml_and_generate(file, request_folder, server_option_overrides):
     yaml_path = os.path.join(request_folder, get_safe_upload_name())
     try:
         file.save(yaml_path)
@@ -112,7 +118,7 @@ def save_yaml_and_generate(file, request_folder):
         return jsonify({'error': f'Error saving file: {error}'}), 500
 
     try:
-        return generate_and_send_mod(request_folder)
+        return generate_and_send_mod(request_folder, server_option_overrides)
     except Exception as error:
         print(f'Internal server error: {error}')
         return jsonify({'error': f'Internal server error: {error}'}), 500
@@ -483,7 +489,8 @@ def start_background_task(task_function, *task_arguments):
 def run_draft_generate(game_id, game_folder):
     try:
         server_password = secrets.token_urlsafe(16)
-        generated_zip_path, multiworld = ap_tools.generate(game_folder, server_password=server_password)
+        server_option_overrides = {'server_password': server_password}
+        generated_zip_path, multiworld = ap_tools.generate(game_folder, server_option_overrides)
         slot_name = multiworld.get_player_name(draft_item_pool.HOST_PLAYER_NUMBER)
         game = draft_tools.get_game(game_id)
         item_categories = game['item_categories'].split(',')
@@ -540,7 +547,10 @@ def kh1_apworld():
 @app.route('/kh1_options', methods=['GET'])
 def kh1_options():
     try:
-        return jsonify(options_tools.get_kh1_options_schema()), 200
+        ap_tools.set_root()
+        response = dict(options_tools.get_kh1_options_schema())
+        response['server_tab'] = options_tools.get_server_options_schema()
+        return jsonify(response), 200
     except Exception as error:
         print(f'Error in kh1_options: {error}')
         return jsonify({'error': 'Something went wrong'}), 500

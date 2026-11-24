@@ -157,7 +157,7 @@ def build_kh1_apworld():
     return buffer
 
 
-def generate(players_folder, server_password=None):
+def generate(players_folder, server_option_overrides=None):
     set_root()
     generation_settings = ap_generate.mystery_argparse(["--player_files_path", players_folder])
     generation_args, seed = ap_generate.main(generation_settings)
@@ -166,9 +166,9 @@ def generate(players_folder, server_password=None):
     from settings import get_settings
 
     baked_server_options = None
-    if server_password is not None:
-        baked_server_options = dict(get_settings().server_options.as_dict())
-        baked_server_options["server_password"] = server_password
+    if server_option_overrides:
+        baked_server_options = get_settings().server_options.as_dict()
+        baked_server_options.update(server_option_overrides)
 
     multiworld = run_generation(generation_args, seed, baked_server_options=baked_server_options)
     output_zip_path = f"{AP_ROOT}output/AP_{multiworld.seed_name}.zip"

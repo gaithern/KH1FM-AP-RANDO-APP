@@ -3,9 +3,38 @@ import re
 from inspect import cleandoc
 
 import Options
+from settings import get_settings
 from worlds.AutoWorld import AutoWorldRegister
 
 KH1_GAME_NAME = 'Kingdom Hearts'
+
+RELEASE_AND_COLLECT_CHOICES = [
+    {'value': 'auto', 'text': 'Automatic on goal'},
+    {'value': 'auto-enabled', 'text': 'Automatic on goal, manual any time'},
+    {'value': 'enabled', 'text': 'Manual any time'},
+    {'value': 'goal', 'text': 'Manual after goal'},
+    {'value': 'disabled', 'text': 'Disabled'},
+]
+
+REMAINING_CHOICES = [
+    {'value': 'enabled', 'text': 'Any time'},
+    {'value': 'goal', 'text': 'After goal'},
+    {'value': 'disabled', 'text': 'Disabled'},
+]
+
+COUNTDOWN_CHOICES = [
+    {'value': 'auto', 'text': 'Rooms with fewer than 30 slots'},
+    {'value': 'enabled', 'text': 'Enabled'},
+    {'value': 'disabled', 'text': 'Disabled'},
+]
+
+ITEM_CHEAT_CHOICES = [
+    {'value': 'disabled', 'text': 'Disabled'},
+    {'value': 'enabled', 'text': 'Enabled'},
+]
+
+HINT_COST_MIN = 0
+HINT_COST_MAX = 100
 
 
 def make_slug(name):
@@ -85,3 +114,120 @@ def get_kh1_options_schema():
         'world_version': world.world_version.as_simple_string(),
         'tabs': tabs,
     }
+
+
+def make_select_setting(key, label, description, choices, default):
+    return {
+        'key': key,
+        'label': label,
+        'description': description,
+        'rich_text_doc': False,
+        'type': 'select',
+        'options': choices,
+        'default': default,
+    }
+
+
+def make_hint_cost_setting(default):
+    return {
+        'key': 'hint_cost',
+        'label': 'Hint Cost',
+        'description': 'Percent of your checks needed to earn one !hint. For example, 20 means you earn a hint '
+                       'for every 20% of your checks, for 5 hints in total. 0 makes hints free.',
+        'rich_text_doc': False,
+        'type': 'range',
+        'min': HINT_COST_MIN,
+        'max': HINT_COST_MAX,
+        'default': default,
+    }
+
+
+def get_server_options_schema():
+    host_server_options = get_settings().server_options
+
+    item_cheat_default = 'enabled'
+    if host_server_options.disable_item_cheat:
+        item_cheat_default = 'disabled'
+
+    settings = [
+        make_hint_cost_setting(int(host_server_options.hint_cost)),
+        make_select_setting(
+            'release_mode',
+            'Release Mode',
+            'Release sends out every item still in your world to the players they belong to.',
+            RELEASE_AND_COLLECT_CHOICES,
+            str(host_server_options.release_mode),
+        ),
+        make_select_setting(
+            'collect_mode',
+            'Collect Mode',
+            'Collect gives you every item of yours still sitting in other players\' worlds.',
+            RELEASE_AND_COLLECT_CHOICES,
+            str(host_server_options.collect_mode),
+        ),
+        make_select_setting(
+            'remaining_mode',
+            'Remaining Mode',
+            'When players can use !remaining to see which of their items are still out there.',
+            REMAINING_CHOICES,
+            str(host_server_options.remaining_mode),
+        ),
+        make_select_setting(
+            'countdown_mode',
+            'Countdown Mode',
+            'When players can start a countdown with !countdown.',
+            COUNTDOWN_CHOICES,
+            str(host_server_options.countdown_mode),
+        ),
+        make_select_setting(
+            'item_cheat',
+            'Item Cheat',
+            'Whether players can give themselves items with !getitem.',
+            ITEM_CHEAT_CHOICES,
+            item_cheat_default,
+        ),
+    ]
+    return {'slug': 'server', 'name': 'Server', 'settings': settings}
+
+
+def is_allowed_choice(setting, submitted_value):
+    for choice in setting['options']:
+        if choice['value'] == submitted_value:
+            return True
+    return False
+
+
+def read_select_value(setting, submitted_value):
+    if not is_allowed_choice(setting, submitted_value):
+        raise ValueError(f"Invalid value for {setting['label']}: {submitted_value}")
+    return submitted_value
+
+
+def read_range_value(setting, submitted_value):
+    try:
+        number = int(submitted_value)
+    except ValueError:
+        raise ValueError(f"{setting['label']} must be a whole number")
+    if number < setting['min'] or number > setting['max']:
+        raise ValueError(f"{setting['label']} must be between {setting['min']} and {setting['max']}")
+    return number
+
+
+def read_server_options(form):
+    server_options = {}
+    for setting in get_server_options_schema()['settings']:
+        key = setting['key']
+        submitted_value = form.get(key)
+        if submitted_value is None:
+            continue
+
+        if setting['type'] == 'range':
+            value = read_range_value(setting, submitted_value)
+        else:
+            value = read_select_value(setting, submitted_value)
+
+        if key == 'item_cheat':
+            server_options['disable_item_cheat'] = value == 'disabled'
+        else:
+            server_options[key] = value
+    return server_options
