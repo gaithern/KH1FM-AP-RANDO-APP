@@ -467,6 +467,12 @@ def draft_upload_yaml(join_code):
         return jsonify({'error': file_error}), 400
     file = request.files['file']
 
+    ap_tools.set_root()
+    try:
+        server_option_overrides = options_tools.read_server_options(request.form)
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+
     game_folder = f'{DRAFT_YAMLS_ROOT}/{game_id}/'
     ap_tools.create_or_empty_folder(game_folder)
     yaml_path = os.path.join(game_folder, get_safe_upload_name())
@@ -477,7 +483,7 @@ def draft_upload_yaml(join_code):
     except ValueError as error:
         return jsonify({'error': str(error)}), 400
 
-    start_background_task(run_draft_generate, game_id, game_folder)
+    start_background_task(run_draft_generate, game_id, game_folder, server_option_overrides)
     return jsonify({'message': 'Generating seed...'}), 200
 
 
@@ -486,10 +492,10 @@ def start_background_task(task_function, *task_arguments):
     thread.start()
 
 
-def run_draft_generate(game_id, game_folder):
+def run_draft_generate(game_id, game_folder, server_option_overrides):
     try:
         server_password = secrets.token_urlsafe(16)
-        server_option_overrides = {'server_password': server_password}
+        server_option_overrides['server_password'] = server_password
         generated_zip_path, multiworld = ap_tools.generate(game_folder, server_option_overrides)
         slot_name = multiworld.get_player_name(draft_item_pool.HOST_PLAYER_NUMBER)
         game = draft_tools.get_game(game_id)
