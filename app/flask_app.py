@@ -549,7 +549,7 @@ def kh1_options():
     try:
         ap_tools.set_root()
         response = dict(options_tools.get_kh1_options_schema())
-        response['server_tab'] = options_tools.get_server_options_schema()
+        response['server_settings'] = options_tools.get_server_options_schema()
         return jsonify(response), 200
     except Exception as error:
         print(f'Error in kh1_options: {error}')

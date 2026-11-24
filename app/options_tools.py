@@ -8,23 +8,11 @@ from worlds.AutoWorld import AutoWorldRegister
 
 KH1_GAME_NAME = 'Kingdom Hearts'
 
-RELEASE_AND_COLLECT_CHOICES = [
+RELEASE_CHOICES = [
     {'value': 'auto', 'text': 'Automatic on goal'},
     {'value': 'auto-enabled', 'text': 'Automatic on goal, manual any time'},
     {'value': 'enabled', 'text': 'Manual any time'},
     {'value': 'goal', 'text': 'Manual after goal'},
-    {'value': 'disabled', 'text': 'Disabled'},
-]
-
-REMAINING_CHOICES = [
-    {'value': 'enabled', 'text': 'Any time'},
-    {'value': 'goal', 'text': 'After goal'},
-    {'value': 'disabled', 'text': 'Disabled'},
-]
-
-COUNTDOWN_CHOICES = [
-    {'value': 'auto', 'text': 'Rooms with fewer than 30 slots'},
-    {'value': 'enabled', 'text': 'Enabled'},
     {'value': 'disabled', 'text': 'Disabled'},
 ]
 
@@ -154,40 +142,19 @@ def get_server_options_schema():
         make_select_setting(
             'release_mode',
             'Release Mode',
-            'Release sends out every item still in your world to the players they belong to.',
-            RELEASE_AND_COLLECT_CHOICES,
+            'Release gives you every item still sitting in locations you haven\'t checked yet.',
+            RELEASE_CHOICES,
             str(host_server_options.release_mode),
-        ),
-        make_select_setting(
-            'collect_mode',
-            'Collect Mode',
-            'Collect gives you every item of yours still sitting in other players\' worlds.',
-            RELEASE_AND_COLLECT_CHOICES,
-            str(host_server_options.collect_mode),
-        ),
-        make_select_setting(
-            'remaining_mode',
-            'Remaining Mode',
-            'When players can use !remaining to see which of their items are still out there.',
-            REMAINING_CHOICES,
-            str(host_server_options.remaining_mode),
-        ),
-        make_select_setting(
-            'countdown_mode',
-            'Countdown Mode',
-            'When players can start a countdown with !countdown.',
-            COUNTDOWN_CHOICES,
-            str(host_server_options.countdown_mode),
         ),
         make_select_setting(
             'item_cheat',
             'Item Cheat',
-            'Whether players can give themselves items with !getitem.',
+            'Whether you can give yourself items with !getitem.',
             ITEM_CHEAT_CHOICES,
             item_cheat_default,
         ),
     ]
-    return {'slug': 'server', 'name': 'Server', 'settings': settings}
+    return settings
 
 
 def is_allowed_choice(setting, submitted_value):
@@ -215,7 +182,7 @@ def read_range_value(setting, submitted_value):
 
 def read_server_options(form):
     server_options = {}
-    for setting in get_server_options_schema()['settings']:
+    for setting in get_server_options_schema():
         key = setting['key']
         submitted_value = form.get(key)
         if submitted_value is None:
