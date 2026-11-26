@@ -24,6 +24,9 @@ ITEM_CHEAT_CHOICES = [
 HINT_COST_MIN = 0
 HINT_COST_MAX = 100
 
+LOCATION_CHECK_POINTS_MIN = 0
+LOCATION_CHECK_POINTS_MAX = 100
+
 
 def make_slug(name):
     lowercase_name = name.lower()
@@ -116,16 +119,15 @@ def make_select_setting(key, label, description, choices, default):
     }
 
 
-def make_hint_cost_setting(default):
+def make_range_setting(key, label, description, minimum, maximum, default):
     return {
-        'key': 'hint_cost',
-        'label': 'Hint Cost',
-        'description': 'Percent of your checks needed to earn one !hint. For example, 20 means you earn a hint '
-                       'for every 20% of your checks, for 5 hints in total. 0 makes hints free.',
+        'key': key,
+        'label': label,
+        'description': description,
         'rich_text_doc': False,
         'type': 'range',
-        'min': HINT_COST_MIN,
-        'max': HINT_COST_MAX,
+        'min': minimum,
+        'max': maximum,
         'default': default,
     }
 
@@ -138,7 +140,24 @@ def get_server_options_schema():
         item_cheat_default = 'disabled'
 
     settings = [
-        make_hint_cost_setting(int(host_server_options.hint_cost)),
+        make_range_setting(
+            'hint_cost',
+            'Hint Cost',
+            'Percent of your checks needed to earn one !hint. For example, 20 means you earn a hint '
+            'for every 20% of your checks, for 5 hints in total. 0 makes hints free.',
+            HINT_COST_MIN,
+            HINT_COST_MAX,
+            int(host_server_options.hint_cost),
+        ),
+        make_range_setting(
+            'location_check_points',
+            'Location Check Points',
+            'Hint points you earn for each location you check. Hint Cost assumes 1 point per check, '
+            'so 2 earns hints twice as fast. 0 means you can never earn a hint unless Hint Cost is 0.',
+            LOCATION_CHECK_POINTS_MIN,
+            LOCATION_CHECK_POINTS_MAX,
+            int(host_server_options.location_check_points),
+        ),
         make_select_setting(
             'release_mode',
             'Release Mode',
